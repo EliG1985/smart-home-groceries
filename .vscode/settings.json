@@ -1,0 +1,12 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.configuration.runtimes": [
+
+        {
+            "name": "JavaSE-17",
+            "path": "${env:JAVA_HOME}",
+            "default": true
+        }
+    ]
+}
