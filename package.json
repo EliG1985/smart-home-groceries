@@ -1,9 +1,5 @@
 {
   "devDependencies": {
-    "@types/express": "^5.0.6"
-  },
-  "dependencies": {
-    "@expo/metro-runtime": "^55.0.6",
-    "react-native-web": "^0.19.13"
+    "@babel/core": "^7.29.0"
   }
 }

@@ -1,12 +1,20 @@
 {
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.gradle.java.home": "C:/Program Files/Eclipse Adoptium/jdk-17.0.17.10-hotspot",
     "java.configuration.runtimes": [
-
         {
             "name": "JavaSE-17",
-            "path": "${env:JAVA_HOME}",
+            "path": "C:/Program Files/Eclipse Adoptium/jdk-17.0.17.10-hotspot",
             "default": true
         }
-    ]
+    ],
+    "files.watcherExclude": {
+        "**/node_modules/**": true
+    },
+    "search.exclude": {
+        "**/node_modules": true
+    },
+    "redhat.telemetry.enabled": false,
+    "fabric8-analytics.enableDiagnosticsSuggestions": false
 }

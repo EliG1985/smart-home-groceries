@@ -5,8 +5,11 @@
     "allowJs": true,
     "noEmit": true,
     "isolatedModules": true,
-    "types": ["expo", "react-native"],
-    "ignoreDeprecations": "6.0"
+    "types": ["react-native"],
+    "ignoreDeprecations": "5.0",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "lib": ["ES2015", "dom"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
