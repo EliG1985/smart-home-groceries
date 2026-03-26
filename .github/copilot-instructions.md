@@ -1,5 +1,66 @@
-<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
-- [ ] Verify that the copilot-instructions.md file in the .github directory is created.
+# GitHub Copilot Instructions — SmartHome Groceries
+
+## Project Overview
+This is a monorepo for the SmartHome Groceries app with:
+- **`apps/mobile`** — Expo SDK 50 / React Native 0.73.6 mobile app (TypeScript)
+- **`apps/backend`** — Node.js + Express 4 REST API (TypeScript)
+- **`shared/`** — shared TypeScript types (`InventoryItem`, `ShoppingListItem`, `ChatMessage`, `ReportSummary`, `StoreItem`)
+
+## Tech Stack
+- **Mobile**: Expo SDK 50, React Native 0.73.6, React Navigation v6 (Stack + Drawer), Supabase JS v2
+- **Auth**: Supabase email/password auth + local SHA-256 hash fallback via expo-crypto
+- **Localisation**: i18next + react-i18next (English + Hebrew)
+- **Backend**: Express 4, TypeScript, ts-node-dev, Supabase JS v2
+- **Build**: Gradle 8.3, JDK 17 (Eclipse Adoptium), Babel 7
+
+## Dependency Rules
+- Mobile dependencies must be pinned to Expo SDK 50 compatible versions.
+- `react-native` must stay at `0.73.6` (exact).
+- `react-native-reanimated` must stay at `~3.6.2`.
+- `react-native-screens` must stay at `~3.29.0` (peer of drawer v6).
+- `@react-navigation/*` packages must stay on v6 line (v7 requires screens >= 4).
+- `react` and `react-dom` must be exactly `18.2.0`.
+- Never add Expo or React Native runtime packages to the root `package.json` — root is tooling only (`@babel/core`).
+
+## File Structure Conventions
+- Screen components live in `apps/mobile/modules/`
+- Shared UI components live in `apps/mobile/ui/`
+- Supabase client is a singleton at `apps/mobile/utils/supabaseClient.ts`
+- i18n setup is at `apps/mobile/utils/i18n.ts`
+- Locale strings live in `apps/mobile/locales/{en,he}.json`
+- Backend routes live in `apps/backend/src/routes/`
+
+## Validation Pattern
+Forms use per-field inline validation (not Alert popups):
+- A `FieldErrors` type holds optional string error per field
+- On submit, validate all fields at once and set all errors
+- Each input clears its own error on change via `clearError(field)`
+- Mandatory fields show a red `*` label; optional fields show grey `(optional)`
+- Error text renders below the input with `styles.errorText` (red, 12px)
+- Invalid inputs get `styles.inputError` (red border)
+
+## Supabase Data Storage
+- Registration uses `supabase.auth.signUp({ email, password, options: { data: { full_name, phone?, city?, birthday } } })`
+- Profile metadata lives in `auth.users.raw_user_meta_data`
+- Recommended: mirror to `public.profiles` via Postgres trigger (migration pending in `supabase/`)
+
+## Platform-Specific Code
+- Use `Platform.OS === 'web'` guards for web-only UI (e.g. `<input type="date" />`)
+- DateTimePicker is required dynamically only on `android`/`ios`: `require('@react-native-community/datetimepicker')`
+
+## Git Ignore Rules
+- Never commit `**/node_modules/`, `apps/mobile/android/build/`, `.expo/`, `.env`
+- See root `.gitignore` for the full list
+
+## Running the Project
+```bash
+# Mobile (offline mode if api.expo.dev unreachable)
+cd apps/mobile && npx expo start --offline
+
+# Backend
+cd apps/backend && npm run dev
+```
+
 
 - [ ] Clarify Project Requirements
 	<!-- Ask for project type, language, and frameworks if not specified. Skip if already provided. -->

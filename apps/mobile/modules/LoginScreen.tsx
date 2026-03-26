@@ -11,9 +11,9 @@ import * as Crypto from 'expo-crypto';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type RootStackParamList = {
-  Home: undefined;
-  Inventory: undefined;
-  // Add other routes as needed
+  Login: undefined;
+  Register: undefined;
+  Main: undefined;
 };
 
 type LoginScreenProps = {
@@ -36,7 +36,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         const hashed = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, email + ':' + password);
         await AsyncStorage.setItem('localAuth', JSON.stringify({ email, hash: hashed }));
         setLoading(false);
-        navigation.replace('Inventory');
+        navigation.replace('Main');
         return;
       } else if (error) {
         supabaseError = error;
@@ -60,7 +60,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           if (email === savedEmail && hash === inputHash) {
             setLoading(false);
             Alert.alert('Offline mode', 'Logged in with local credentials. Some features may be unavailable.');
-            navigation.replace('Inventory');
+            navigation.replace('Main');
             return;
           }
         }
