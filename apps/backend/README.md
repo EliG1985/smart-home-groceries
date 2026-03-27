@@ -39,11 +39,13 @@ apps/backend/
 ├── src/
 │   ├── server.ts        # Express app entry point
 │   └── routes/
-│       ├── inventory.ts    # Inventory endpoints (planned)
-│       ├── shoppingList.ts # Shopping list endpoints (planned)
+│       ├── inventory.ts    # Inventory + shopping-list contract endpoints
+│       ├── shoppingList.ts # Compatibility alias route
 │       ├── chat.ts         # Chat endpoints (planned)
 │       ├── reports.ts      # Reports endpoints (planned)
 │       └── store.ts        # Store endpoints (planned)
+│   └── contracts/
+│       └── inventory.ts    # Contract request/response DTO types
 ├── package.json
 └── tsconfig.json
 ```
@@ -55,11 +57,30 @@ apps/backend/
 | Method | Path | Status | Description |
 |--------|------|--------|-------------|
 | GET | `/health` | ✅ Live | Health check |
-| * | `/inventory/*` | 🔲 Planned | Inventory management |
-| * | `/shopping-list/*` | 🔲 Planned | Shopping list management |
+| GET | `/api/inventory` | ✅ Live | List family-scoped inventory items (supports `?status=In_List|At_Home`) |
+| POST | `/api/inventory` | ✅ Live | Create inventory/shopping-list item |
+| PATCH | `/api/inventory/:id` | ✅ Live | Update item fields |
+| PATCH | `/api/inventory/:id/status` | ✅ Live | Move item between list and pantry |
+| DELETE | `/api/inventory/:id` | ✅ Live | Delete a single item |
+| POST | `/api/inventory/batch/buy` | ✅ Live | Mark selected items as bought (`At_Home`) |
+| POST | `/api/inventory/batch/delete` | ✅ Live | Delete selected items |
+| * | `/api/shopping-list/*` | ✅ Live | Alias to `/api/inventory/*` for compatibility |
 | * | `/chat/*` | 🔲 Planned | Family chat |
 | * | `/reports/*` | 🔲 Planned | Spending reports |
 | * | `/store/*` | 🔲 Planned | In-app store |
+
+### Guard Headers (temporary scaffold)
+
+Until JWT middleware is wired, write guards use headers:
+- `x-family-id`
+- `x-user-id`
+- `x-user-role` (`owner | editor | viewer`)
+- `x-subscription-tier` (`Free | Premium`)
+- `x-family-members-count`
+
+Write failures:
+- `403 FORBIDDEN_ROLE` for `viewer`
+- `402 PREMIUM_REQUIRED` when shared family writes require Premium
 
 ---
 

@@ -14,6 +14,52 @@ export type ShoppingListItem = InventoryItem & {
   addedBy: string;
 };
 
+export type InventoryCreatePayload = {
+  id?: string;
+  productName: string;
+  category: string;
+  expiryDate: string;
+  status: 'In_List' | 'At_Home';
+  price: number;
+  quantity: number;
+  addedBy?: string;
+};
+
+export type InventoryUpdatePayload = Partial<
+  Pick<InventoryCreatePayload, 'productName' | 'category' | 'expiryDate' | 'price' | 'quantity'>
+>;
+
+export type InventoryStatusPatchPayload = {
+  status: 'In_List' | 'At_Home';
+};
+
+export type InventoryBatchPayload = {
+  itemIds: string[];
+};
+
+export type InventoryListResponse = {
+  items: ShoppingListItem[];
+  total: number;
+};
+
+export type InventoryBatchBuyResponse = {
+  updatedCount: number;
+  updatedIds: string[];
+};
+
+export type InventoryBatchDeleteResponse = {
+  deletedCount: number;
+  deletedIds: string[];
+};
+
+export type ApiErrorResponse = {
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
+};
+
 export type ChatMessage = {
   id: string;
   familyId: string;

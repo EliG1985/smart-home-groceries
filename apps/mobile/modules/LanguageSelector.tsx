@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -8,9 +8,11 @@ const LANGUAGES = [
   { code: 'he', label: 'עברית' },
 ];
 
+const normalizeLanguage = (lang: string) => lang.split('-')[0];
+
 export default function LanguageSelector() {
-  const { i18n, t } = useTranslation();
-  const [selected, setSelected] = React.useState<string>(i18n.language);
+  const { i18n } = useTranslation();
+  const [selected, setSelected] = React.useState<string>(normalizeLanguage(i18n.language));
   // Dynamically require Picker only on native platforms
   const Picker = (Platform.OS === 'android' || Platform.OS === 'ios')
     ? require('@react-native-picker/picker').Picker
@@ -24,16 +26,21 @@ export default function LanguageSelector() {
 
   React.useEffect(() => {
     AsyncStorage.getItem('appLanguage').then((lang) => {
-      if (lang && lang !== i18n.language) {
-        i18n.changeLanguage(lang);
-        setSelected(lang);
+      const resolvedLanguage = normalizeLanguage(i18n.resolvedLanguage || i18n.language);
+      if (lang) {
+        const normalizedStoredLanguage = normalizeLanguage(lang);
+        if (normalizedStoredLanguage !== resolvedLanguage) {
+          i18n.changeLanguage(normalizedStoredLanguage);
+        }
+        setSelected(normalizedStoredLanguage);
+      } else {
+        setSelected(resolvedLanguage);
       }
     });
-  }, []);
+  }, [i18n]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{t('language')}:</Text>
       {Platform.OS === 'web' ? (
         <select
           value={selected}
@@ -51,7 +58,7 @@ export default function LanguageSelector() {
           <Picker
             selectedValue={selected}
             onValueChange={handleChange}
-            style={{ flex: 1 }}
+            style={styles.nativePicker}
           >
             {LANGUAGES.map((lang) => (
               <Picker.Item key={lang.code} label={lang.label} value={lang.code} />
@@ -67,16 +74,16 @@ export default function LanguageSelector() {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  label: {
-    marginRight: 8,
-    fontSize: 16,
+    alignItems: 'flex-end',
+    width: 160,
   },
   picker: {
-    minWidth: 120,
+    minWidth: 140,
     fontSize: 16,
+  },
+  nativePicker: {
+    width: 160,
+    height: 42,
+    color: '#261E58',
   },
 });

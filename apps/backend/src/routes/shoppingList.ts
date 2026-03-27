@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import inventoryRouter from './inventory';
+
 const router = Router();
 
-// TODO: Add shopping list endpoints
+// Shopping list is backed by inventory items with status=In_List.
+router.use('/', inventoryRouter);
 
 export default router;

@@ -4,13 +4,22 @@
     "slug": "smarthome-groceries-mobile",
     "version": "0.1.0",
     "sdkVersion": "50.0.0",
+    "scheme": "smarthomegroceries",
+    "main": "index.js",
     "platforms": [
       "ios",
       "android",
       "web"
     ],
     "android": {
-      "package": "com.anonymous.smarthomegroceriesmobile"
+      "package": "com.anonymous.smarthomegroceriesmobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
     }
   }
 }

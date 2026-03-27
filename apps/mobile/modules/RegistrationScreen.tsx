@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { View, Text, TextInput, Button, StyleSheet, Alert, Platform, ScrollView } from 'react-native';
 
 let DateTimePicker: any = null;
@@ -12,6 +13,7 @@ if (Platform.OS === 'android' || Platform.OS === 'ios') {
 }
 import { supabase } from '../utils/supabaseClient';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { clearDraft, loadDraft, saveDraft } from '../utils/formDraftStorage';
 
 type RootStackParamList = {
   Login: undefined;
@@ -37,6 +39,7 @@ type FieldErrors = {
 };
 
 export default function RegistrationScreen({ navigation }: RegistrationScreenProps) {
+  const { t } = useTranslation();
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
@@ -48,20 +51,52 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
 
+  React.useEffect(() => {
+    loadDraft<{ fullName: string; phone: string; city: string; email: string; birthday: string | null }>('register', {
+      fullName: '',
+      phone: '',
+      city: '',
+      email: '',
+      birthday: null,
+    }).then((draft) => {
+      setFullName(draft.fullName);
+      setPhone(draft.phone);
+      setCity(draft.city);
+      setEmail(draft.email);
+      setBirthday(draft.birthday ? new Date(draft.birthday) : null);
+    });
+  }, []);
+
+  const persistDraft = (nextDraft: {
+    fullName?: string;
+    phone?: string;
+    city?: string;
+    email?: string;
+    birthday?: Date | null;
+  }) => {
+    saveDraft('register', {
+      fullName: nextDraft.fullName ?? fullName,
+      phone: nextDraft.phone ?? phone,
+      city: nextDraft.city ?? city,
+      email: nextDraft.email ?? email,
+      birthday: (nextDraft.birthday === undefined ? birthday : nextDraft.birthday)?.toISOString() ?? null,
+    });
+  };
+
   const clearError = (field: keyof FieldErrors) =>
     setErrors((prev: FieldErrors) => ({ ...prev, [field]: undefined }));
 
   const validate = (): FieldErrors => {
     const e: FieldErrors = {};
-    if (!fullName.trim()) e.fullName = 'Full name is required.';
-    if (!email.trim()) e.email = 'Email is required.';
-    else if (!email.match(/^[^@\s]+@[^@\s]+\.[^@\s]+$/)) e.email = 'A valid email address is required.';
-    if (!password) e.password = 'Password is required.';
-    else if (password.length < 8) e.password = 'Password must be at least 8 characters.';
-    if (!confirmPassword) e.confirmPassword = 'Please confirm your password.';
-    else if (password !== confirmPassword) e.confirmPassword = 'Passwords do not match.';
-    if (!birthday) e.birthday = 'Birthday is required.';
-    if (phone && !phone.match(/^\+?\d{7,15}$/)) e.phone = 'Enter a valid phone number (7–15 digits).';
+    if (!fullName.trim()) e.fullName = t('validation.fullNameRequired');
+    if (!email.trim()) e.email = t('validation.emailRequired');
+    else if (!email.match(/^[^@\s]+@[^@\s]+\.[^@\s]+$/)) e.email = t('validation.emailValid');
+    if (!password) e.password = t('validation.passwordRequired');
+    else if (password.length < 8) e.password = t('validation.passwordMin');
+    if (!confirmPassword) e.confirmPassword = t('validation.confirmPasswordRequired');
+    else if (password !== confirmPassword) e.confirmPassword = t('validation.passwordsDoNotMatch');
+    if (!birthday) e.birthday = t('validation.birthdayRequired');
+    if (phone && !phone.match(/^\+?\d{7,15}$/)) e.phone = t('validation.phoneValid');
     return e;
   };
 
@@ -88,14 +123,15 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
       });
       setLoading(false);
       if (error) {
-        Alert.alert('Registration failed', error.message);
+        Alert.alert(t('messages.registrationFailedTitle'), error.message);
         return;
       }
-      Alert.alert('Success', 'Registration successful! Please check your email to verify your account.');
+      await clearDraft('register');
+      Alert.alert(t('messages.successTitle'), t('messages.registrationSuccess'));
       navigation.replace('Login');
-    } catch (err) {
+    } catch {
       setLoading(false);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      Alert.alert(t('messages.registrationFailedTitle'), t('messages.unexpectedError'));
     }
   };
 
@@ -104,43 +140,43 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Register</Text>
+      <Text style={styles.title}>{t('screens.register')}</Text>
       <Text style={styles.legend}>
-        <Text style={styles.required}>*</Text> Required fields
+        <Text style={styles.required}>*</Text> {t('common.requiredFields')}
       </Text>
 
       {/* Full Name */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Full Name <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>{t('labels.fullName')} <Text style={styles.required}>*</Text></Text>
         <TextInput
           style={inputStyle('fullName')}
-          placeholder="Full Name"
+          placeholder={t('placeholders.fullName')}
           value={fullName}
-          onChangeText={(value: string) => { setFullName(value); clearError('fullName'); }}
+          onChangeText={(value: string) => { setFullName(value); clearError('fullName'); persistDraft({ fullName: value }); }}
         />
         {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
       </View>
 
       {/* Email */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Email <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>{t('labels.email')} <Text style={styles.required}>*</Text></Text>
         <TextInput
           style={inputStyle('email')}
-          placeholder="Email"
+          placeholder={t('placeholders.email')}
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
-          onChangeText={(value: string) => { setEmail(value); clearError('email'); }}
+          onChangeText={(value: string) => { setEmail(value); clearError('email'); persistDraft({ email: value }); }}
         />
         {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
       </View>
 
       {/* Password */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Password <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>{t('labels.password')} <Text style={styles.required}>*</Text></Text>
         <TextInput
           style={inputStyle('password')}
-          placeholder="Password (min. 8 characters)"
+          placeholder={t('placeholders.passwordMin')}
           secureTextEntry
           value={password}
           onChangeText={(value: string) => { setPassword(value); clearError('password'); clearError('confirmPassword'); }}
@@ -150,10 +186,10 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
 
       {/* Confirm Password */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Confirm Password <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>{t('labels.confirmPassword')} <Text style={styles.required}>*</Text></Text>
         <TextInput
           style={inputStyle('confirmPassword')}
-          placeholder="Confirm Password"
+          placeholder={t('placeholders.confirmPassword')}
           secureTextEntry
           value={confirmPassword}
           onChangeText={(value: string) => { setConfirmPassword(value); clearError('confirmPassword'); }}
@@ -163,7 +199,7 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
 
       {/* Birthday */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Birthday <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>{t('labels.birthday')} <Text style={styles.required}>*</Text></Text>
         {Platform.OS === 'web' ? (
           <input
             type="date"
@@ -181,13 +217,14 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
               const val = event.target.value;
               setBirthday(val ? new Date(val) : null);
               clearError('birthday');
+              persistDraft({ birthday: val ? new Date(val) : null });
             }}
             max={new Date().toISOString().split('T')[0]}
           />
         ) : (
           <View style={[styles.dateButton, errors.birthday ? styles.dateButtonError : null]}>
             <Button
-              title={birthday ? birthday.toLocaleDateString() : 'Select Birthday'}
+              title={birthday ? birthday.toLocaleDateString() : t('placeholders.birthday')}
               onPress={() => setShowDatePicker(true)}
             />
             {showDatePicker && DateTimePicker && (
@@ -197,7 +234,7 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={(_event: any, date?: Date) => {
                   setShowDatePicker(false);
-                  if (date) { setBirthday(date); clearError('birthday'); }
+                  if (date) { setBirthday(date); clearError('birthday'); persistDraft({ birthday: date }); }
                 }}
                 maximumDate={new Date()}
               />
@@ -209,29 +246,29 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
 
       {/* Phone (optional) */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>Phone Number <Text style={styles.optional}>(optional)</Text></Text>
+        <Text style={styles.label}>{t('labels.phoneNumber')} <Text style={styles.optional}>({t('common.optional')})</Text></Text>
         <TextInput
           style={inputStyle('phone')}
-          placeholder="e.g. +1234567890"
+          placeholder={t('placeholders.phone')}
           keyboardType="phone-pad"
           value={phone}
-          onChangeText={(value: string) => { setPhone(value); clearError('phone'); }}
+          onChangeText={(value: string) => { setPhone(value); clearError('phone'); persistDraft({ phone: value }); }}
         />
         {errors.phone ? <Text style={styles.errorText}>{errors.phone}</Text> : null}
       </View>
 
       {/* City (optional) */}
       <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>City <Text style={styles.optional}>(optional)</Text></Text>
+        <Text style={styles.label}>{t('labels.city')} <Text style={styles.optional}>({t('common.optional')})</Text></Text>
         <TextInput
           style={styles.input}
-          placeholder="Your city"
+          placeholder={t('placeholders.city')}
           value={city}
-          onChangeText={setCity}
+          onChangeText={(value: string) => { setCity(value); persistDraft({ city: value }); }}
         />
       </View>
 
-      <Button title={loading ? 'Registering...' : 'Register'} onPress={handleRegister} disabled={loading} />
+      <Button title={loading ? t('buttons.registering') : t('buttons.register')} onPress={handleRegister} disabled={loading} />
     </ScrollView>
   );
 }

@@ -1,18 +1,21 @@
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as Crypto from 'expo-crypto';
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Alert } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import LanguageSelector from './LanguageSelector';
 import AppButton from '../ui/AppButton';
 import { colors, spacing, borderRadius, fontSizes } from '../ui/theme';
+import { loadDraft, saveDraft } from '../utils/formDraftStorage';
 import { supabase } from '../utils/supabaseClient';
-import LanguageSelector from './LanguageSelector';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
-
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
+  ResetPassword: undefined;
   Main: undefined;
 };
 
@@ -20,10 +23,27 @@ type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
+const buttonStyle = {
+  width: '100%' as const,
+  maxWidth: 320,
+};
+
 export default function LoginScreen({ navigation }: LoginScreenProps) {
+  const { t, i18n } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    loadDraft<{ email: string }>('login', { email: '' }).then((draft) => {
+      setEmail(draft.email);
+    });
+  }, []);
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    saveDraft('login', { email: value });
+  };
 
   const handleLogin = async () => {
     setLoading(true);
@@ -31,21 +51,23 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (!error && data.session) {
-        // Success: store session and hashed credentials locally
         await AsyncStorage.setItem('supabaseSession', JSON.stringify(data.session));
-        const hashed = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, email + ':' + password);
+        const hashed = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${email}:${password}`,
+        );
         await AsyncStorage.setItem('localAuth', JSON.stringify({ email, hash: hashed }));
         setLoading(false);
         navigation.replace('Main');
         return;
-      } else if (error) {
+      }
+      if (error) {
         supabaseError = error;
       }
     } catch (err) {
       supabaseError = err;
     }
 
-    // If Supabase failed due to network, try local fallback
     const isNetworkError =
       supabaseError &&
       ((typeof supabaseError.status === 'number' && supabaseError.status === 0) ||
@@ -56,50 +78,78 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         const localAuth = await AsyncStorage.getItem('localAuth');
         if (localAuth) {
           const { email: savedEmail, hash } = JSON.parse(localAuth);
-          const inputHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, email + ':' + password);
+          const inputHash = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            `${email}:${password}`,
+          );
           if (email === savedEmail && hash === inputHash) {
             setLoading(false);
-            Alert.alert('Offline mode', 'Logged in with local credentials. Some features may be unavailable.');
+            Alert.alert(t('messages.offlineModeTitle'), t('messages.offlineModeBody'));
             navigation.replace('Main');
             return;
           }
         }
         setLoading(false);
-        Alert.alert('Login failed', 'Unable to login. Please check your connection.');
-      } catch (err) {
+        Alert.alert(t('messages.loginFailedTitle'), t('messages.networkLoginFailed'));
+      } catch {
         setLoading(false);
-        Alert.alert('Login failed', 'Unable to login. Please check your connection.');
+        Alert.alert(t('messages.loginFailedTitle'), t('messages.networkLoginFailed'));
       }
     } else {
       setLoading(false);
-      const errorMsg = (supabaseError && typeof supabaseError.message === 'string') ? supabaseError.message : 'Unknown error';
-      Alert.alert('Login failed', errorMsg);
+      const errorMsg =
+        supabaseError && typeof supabaseError.message === 'string'
+          ? supabaseError.message
+          : t('messages.unknownError');
+      Alert.alert(t('messages.loginFailedTitle'), errorMsg);
     }
+  };
+
+  const handlePasswordRecovery = () => {
+    navigation.navigate('ForgotPassword');
   };
 
   return (
     <View style={styles.container}>
-      <LanguageSelector />
-      <Text style={styles.title}>Login</Text>
+      <View style={styles.languageSelectorContainer}>
+        <LanguageSelector />
+      </View>
+      <Text style={styles.title}>{t('screens.login')}</Text>
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder={t('placeholders.email')}
         autoCapitalize="none"
         keyboardType="email-address"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={handleEmailChange}
         placeholderTextColor={colors.placeholder}
+        textAlign={i18n.language === 'he' ? 'right' : 'left'}
       />
       <TextInput
         style={styles.input}
-        placeholder="Password"
+        placeholder={t('placeholders.password')}
         secureTextEntry
         value={password}
         onChangeText={setPassword}
         placeholderTextColor={colors.placeholder}
+        textAlign={i18n.language === 'he' ? 'right' : 'left'}
       />
-      <AppButton title={loading ? 'Logging in...' : 'Login'} onPress={handleLogin} loading={loading} />
-      <AppButton title="Register" onPress={() => navigation.navigate('Register')} style={{ backgroundColor: colors.secondary }} />
+      <AppButton
+        title={loading ? t('buttons.loggingIn') : t('buttons.login')}
+        onPress={handleLogin}
+        loading={loading}
+        style={buttonStyle}
+      />
+      <AppButton
+        title={t('buttons.register')}
+        onPress={() => navigation.navigate('Register')}
+        style={[buttonStyle, { backgroundColor: colors.secondary }]}
+      />
+      <AppButton
+        title={t('buttons.sendReset')}
+        onPress={handlePasswordRecovery}
+        style={[buttonStyle, styles.recoveryButton]}
+      />
     </View>
   );
 }
@@ -131,5 +181,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.inputBackground,
     color: colors.text,
     fontSize: fontSizes.medium,
+  },
+  languageSelectorContainer: {
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.md,
+    left: 'auto',
+    zIndex: 2,
+  },
+  recoveryButton: {
+    backgroundColor: colors.textSecondary,
   },
 });
