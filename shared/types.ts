@@ -60,6 +60,65 @@ export type ApiErrorResponse = {
   };
 };
 
+export type BarcodeLookupSource = 'open_food_facts' | 'local_cache' | 'learned_mapping';
+
+export type SuggestionConfidence = 'high' | 'medium' | 'low';
+
+export type ScannedProductCandidate = {
+  barcode: string;
+  productName: string;
+  brand?: string;
+  category?: string;
+  packageSize?: string;
+  imageUrl?: string;
+};
+
+export type SmartSuggestion = {
+  field: 'category' | 'price' | 'quantity';
+  value: string | number;
+  confidence: SuggestionConfidence;
+  source: BarcodeLookupSource;
+  reason?: string;
+};
+
+export type BarcodeLookupRequest = {
+  barcode: string;
+  locale?: string;
+  context?: {
+    destination?: 'In_List' | 'At_Home';
+    storeId?: string;
+  };
+};
+
+export type BarcodeLookupResponse = {
+  traceId: string;
+  barcode: string;
+  found: boolean;
+  product?: ScannedProductCandidate;
+  suggestions: SmartSuggestion[];
+  source: BarcodeLookupSource;
+};
+
+export type BarcodeEnrichRequest = {
+  barcode: string;
+  productName: string;
+  category: string;
+  typicalPrice?: number;
+  defaultQuantity?: number;
+};
+
+export type BarcodeEnrichResponse = {
+  saved: boolean;
+  barcode: string;
+};
+
+export type BarcodeCacheResponse = {
+  hit: boolean;
+  cachedAt?: string;
+  expiresAt?: string;
+  value?: BarcodeLookupResponse;
+};
+
 export type ChatMessage = {
   id: string;
   familyId: string;

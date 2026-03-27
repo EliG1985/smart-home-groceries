@@ -4,6 +4,8 @@
     "email": "Email",
     "password": "Password",
     "loading": "Loading...",
+    "logout": "Logout",
+    "loggingOut": "Logging out...",
     "backToLogin": "Back to Login",
     "continue": "Continue",
     "optional": "optional",
@@ -15,6 +17,10 @@
     "resetPass": "Reset Pass",
     "inventory": "My Home Stock",
     "shoppingList": "Shopping List",
+    "barcodeScanner": "Barcode Scanner",
+    "accountProfile": "Account Profile",
+    "settings": "Full Settings",
+    "members": "Members",
     "chat": "Chat",
     "reports": "Reports",
     "store": "Store"
@@ -99,6 +105,7 @@
   "shoppingList": {
     "totalPrefix": "Total",
     "openAdd": "Add Item",
+    "openScanner": "Scan Barcode",
     "closeAdd": "Close",
     "save": "Save Item",
     "saving": "Saving...",
@@ -118,9 +125,36 @@
     "updateFailedTitle": "Unable to update item",
     "deleteFailedTitle": "Unable to delete item",
     "batchFailedTitle": "Batch action failed",
+    "productTitle": "Product Details",
+    "barcodeTitle": "Barcode Assist",
+    "barcodePlaceholder": "Barcode (8-14 digits)",
+    "barcodeLookup": "Lookup",
+    "barcodeLookupLoading": "Looking up...",
+    "barcodeLookupFound": "Barcode matched (source: {{source}})",
+    "barcodeLookupMiss": "No product match found. Continue with manual add.",
+    "barcodeLookupFailed": "Unable to complete barcode lookup right now.",
+    "barcodeValidation": "Barcode must contain 8 to 14 digits.",
     "validationTitle": "Invalid item",
-    "validationRequired": "Product name, category, and a valid expiry date are required.",
+    "validationRequired": "Product name and category are required.",
+    "validationExpiry": "Expiry date must be valid when provided.",
     "validationNumbers": "Price must be 0 or more and quantity must be greater than 0.",
+    "edit": "Edit",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel",
+    "suggestionsTitle": "Smart suggestions applied",
+    "suggestionAcceptHint": "Fields are pre-filled — edit if needed.",
+    "unknownBarcodeTitle": "Unknown barcode",
+    "unknownBarcodeBody": "No product found. Fill in the details below and we'll remember it for next time.",
+    "confidence": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "suggestionField": {
+      "category": "Category",
+      "price": "Price",
+      "quantity": "Qty"
+    },
     "detailsTemplate": "Category: {{category}} | Qty: {{quantity}} | Expiry: {{expiryDate}}",
     "form": {
       "productName": "Product name",
@@ -129,6 +163,18 @@
       "price": "Price",
       "quantity": "Quantity"
     }
+  },
+  "scanner": {
+    "title": "Barcode Scanner",
+    "permissionBody": "Camera permission is required to scan barcodes.",
+    "permissionGrant": "Grant Camera Access",
+    "permissionOpenSettings": "Open Settings",
+    "torchOn": "Torch On",
+    "torchOff": "Torch Off",
+    "backToList": "Back to List",
+    "manualTitle": "Manual Barcode Entry",
+    "manualPlaceholder": "Enter barcode digits",
+    "manualUse": "Use Barcode"
   },
   "inventory": {
     "totalValuePrefix": "At home value",

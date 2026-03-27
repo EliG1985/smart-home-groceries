@@ -30,7 +30,7 @@ const mapDbRow = (row: Record<string, unknown>): InventoryItemDto => ({
 	familyId: String(row.family_id),
 	productName: String(row.product_name),
 	category: String(row.category),
-	expiryDate: String(row.expiry_date),
+	expiryDate: String(row.expiry_date ?? ''),
 	status: row.status === 'At_Home' ? 'At_Home' : 'In_List',
 	price: Number(row.price),
 	quantity: Number(row.quantity),
@@ -147,9 +147,9 @@ const mapCreatePayload = (
 	if (!category) {
 		errors.push('category is required');
 	}
-	if (!expiryDate) {
-		errors.push('expiry_date is required');
-	} else if (!isIsoDate(expiryDate)) {
+	if (status === 'At_Home' && !expiryDate) {
+		errors.push('expiry_date is required for At_Home items');
+	} else if (expiryDate && !isIsoDate(expiryDate)) {
 		errors.push('expiry_date must be a valid date');
 	}
 	if (!status) {

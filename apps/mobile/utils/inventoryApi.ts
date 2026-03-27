@@ -1,5 +1,9 @@
 import type {
   ApiErrorResponse,
+  BarcodeEnrichRequest,
+  BarcodeEnrichResponse,
+  BarcodeLookupRequest,
+  BarcodeLookupResponse,
   InventoryBatchBuyResponse,
   InventoryBatchDeleteResponse,
   InventoryBatchPayload,
@@ -423,6 +427,155 @@ export const batchDeleteShoppingListItems = async (
       return { deletedCount: itemIds.length, deletedIds: itemIds };
     }
   };
+
+const normalizeBarcode = (value: string): string => value.replace(/\D/g, '').trim();
+
+const normalizeCategory = (raw?: string): string | undefined => {
+  if (!raw) {
+    return undefined;
+  }
+  const parts = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => entry.replace(/^en:/i, ''));
+  return parts[0] || undefined;
+};
+
+const pickLocalizedProductName = (product: Record<string, unknown>, locale?: string): string => {
+  const lang = (locale || 'en').toLowerCase();
+  const localizedKey = `product_name_${lang}`;
+  const localized = String(product[localizedKey] ?? '').trim();
+  if (localized) {
+    return localized;
+  }
+
+  const generic = String(product.product_name ?? '').trim();
+  if (generic) {
+    return generic;
+  }
+
+  const english = String(product.product_name_en ?? '').trim();
+  if (english) {
+    return english;
+  }
+
+  return '';
+};
+
+const lookupBarcodeOpenFoodFacts = async (barcode: string, locale?: string): Promise<BarcodeLookupResponse> => {
+  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
+  if (!response.ok) {
+    throw new ApiRequestError('Open Food Facts lookup failed', response.status);
+  }
+
+  const json = (await response.json()) as {
+    product?: Record<string, unknown>;
+    status?: number;
+  };
+
+  const product = json.product;
+  if (!product || json.status !== 1) {
+    return {
+      traceId: `off_${Date.now().toString(36)}`,
+      barcode,
+      found: false,
+      suggestions: [],
+      source: 'open_food_facts',
+    };
+  }
+
+  const productName = pickLocalizedProductName(product, locale);
+  if (!productName) {
+    return {
+      traceId: `off_${Date.now().toString(36)}`,
+      barcode,
+      found: false,
+      suggestions: [],
+      source: 'open_food_facts',
+    };
+  }
+
+  const category = normalizeCategory(String(product.categories_tags ?? product.categories ?? ''));
+  const quantityText = String(product.quantity ?? '').trim();
+  const parsedQuantity = Number(quantityText.replace(/[^0-9.]/g, ''));
+
+  const suggestions: SmartSuggestion[] = [
+    ...(category
+      ? [{ field: 'category', value: category, confidence: 'medium' as const, source: 'open_food_facts' as const }]
+      : []),
+    ...(Number.isFinite(parsedQuantity) && parsedQuantity > 0
+      ? [{ field: 'quantity', value: parsedQuantity, confidence: 'low' as const, source: 'open_food_facts' as const }]
+      : []),
+  ];
+
+  return {
+    traceId: `off_${Date.now().toString(36)}`,
+    barcode,
+    found: true,
+    source: 'open_food_facts',
+    product: {
+      barcode,
+      productName,
+      brand: String(product.brands ?? '').trim() || undefined,
+      category,
+      packageSize: quantityText || undefined,
+      imageUrl: String(product.image_url ?? '').trim() || undefined,
+    },
+    suggestions,
+  };
+};
+
+export const lookupBarcode = async (params: {
+  barcode: string;
+  locale?: string;
+  destination?: 'In_List' | 'At_Home';
+  storeId?: string;
+}): Promise<BarcodeLookupResponse> => {
+  const barcode = normalizeBarcode(params.barcode);
+  const body: BarcodeLookupRequest = {
+    barcode,
+    ...(params.locale ? { locale: params.locale } : {}),
+    context: {
+      destination: params.destination ?? 'In_List',
+      ...(params.storeId ? { storeId: params.storeId } : {}),
+    },
+  };
+
+  try {
+    return await request<BarcodeLookupResponse>('/api/barcode/lookup', {
+      method: 'POST',
+      body,
+    });
+  } catch (error) {
+    if (!isNetworkError(error)) {
+      throw error;
+    }
+
+    return lookupBarcodeOpenFoodFacts(barcode, params.locale);
+  }
+};
+
+export const enrichBarcodeMapping = async (payload: {
+  barcode: string;
+  productName: string;
+  category: string;
+  typicalPrice?: number;
+  defaultQuantity?: number;
+}): Promise<BarcodeEnrichResponse> => {
+  const body: BarcodeEnrichRequest = {
+    barcode: normalizeBarcode(payload.barcode),
+    productName: payload.productName.trim(),
+    category: payload.category.trim(),
+    ...(payload.typicalPrice !== undefined ? { typicalPrice: payload.typicalPrice } : {}),
+    ...(payload.defaultQuantity !== undefined ? { defaultQuantity: payload.defaultQuantity } : {}),
+  };
+
+  return request<BarcodeEnrichResponse>('/api/barcode/enrich', {
+    method: 'POST',
+    body,
+  });
+};
 
 export type InventoryLiveEvent =
   | { type: 'upsert'; item: ShoppingListItem }

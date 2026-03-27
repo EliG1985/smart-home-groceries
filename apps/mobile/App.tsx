@@ -1,20 +1,27 @@
 import './utils/i18n';
 import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createDrawerNavigator } from '@react-navigation/drawer';
+import {
+  DrawerContentComponentProps,
+  DrawerContentScrollView,
+  DrawerItem,
+  DrawerItemList,
+  createDrawerNavigator,
+} from '@react-navigation/drawer';
 import {
   NavigationContainer,
   createNavigationContainerRef,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as ExpoLinking from 'expo-linking';
-import { Linking, Text, View } from 'react-native';
+import { Dimensions, Linking, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import ForgotPasswordScreen from './modules/ForgotPasswordScreen';
 import LoginScreen from './modules/LoginScreen';
 import RegistrationScreen from './modules/RegistrationScreen';
 import ResetPasswordScreen from './modules/ResetPasswordScreen';
+import BarcodeScannerScreen from './modules/BarcodeScannerScreen';
 import InventoryScreen from './modules/inventory';
 import ShoppingListScreen from './modules/shoppingList';
 import { supabase } from './utils/supabaseClient';
@@ -46,9 +53,44 @@ function StoreScreen() {
   );
 }
 
+function AccountProfileScreen() {
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>{t('screens.accountProfile')}</Text>
+    </View>
+  );
+}
+
+function SettingsScreen() {
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>{t('screens.settings')}</Text>
+    </View>
+  );
+}
+
+function MembersScreen() {
+  const { t } = useTranslation();
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>{t('screens.members')}</Text>
+    </View>
+  );
+}
+
 type RootDrawerParamList = {
+  AccountProfile: undefined;
   Inventory: undefined;
-  ShoppingList: undefined;
+  ShoppingList:
+    | {
+        prefillBarcode?: string;
+        scannedAt?: number;
+      }
+    | undefined;
+  Settings: undefined;
+  Members: undefined;
   Chat: undefined;
   Reports: undefined;
   Store: undefined;
@@ -60,18 +102,70 @@ type RootStackParamList = {
   ForgotPassword: undefined;
   ResetPassword: undefined;
   Main: undefined;
+  BarcodeScanner: undefined;
 };
 
 const Drawer = createDrawerNavigator<RootDrawerParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-function DrawerNavigator() {
+type AppDrawerContentProps = DrawerContentComponentProps & {
+  onLogout: () => Promise<void>;
+};
+
+function AppDrawerContent({ onLogout, ...props }: AppDrawerContentProps) {
   const { t } = useTranslation();
+  const [loggingOut, setLoggingOut] = React.useState(false);
+
+  const handleLogout = React.useCallback(async () => {
+    if (loggingOut) {
+      return;
+    }
+
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      setLoggingOut(false);
+    }
+  }, [loggingOut, onLogout]);
+
+  return (
+    <View style={styles.drawerContentWrapper}>
+      <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerScrollContent}>
+        <View style={styles.accountHeaderWrap}>
+          <DrawerItem
+            label={t('screens.accountProfile')}
+            onPress={() => props.navigation.navigate('AccountProfile')}
+          />
+          <View style={styles.accountDivider} />
+        </View>
+
+        <DrawerItemList {...props} />
+      </DrawerContentScrollView>
+
+      <View style={styles.drawerFooter}>
+        <DrawerItem
+          label={loggingOut ? t('common.loggingOut') : t('common.logout')}
+          onPress={handleLogout}
+        />
+      </View>
+    </View>
+  );
+}
+
+function DrawerNavigator({ onLogout }: { onLogout: () => Promise<void> }) {
+  const { t } = useTranslation();
+  const drawerWidth = Math.min(Dimensions.get('window').width * 0.72, 300);
+
   return (
     <Drawer.Navigator
       initialRouteName="Inventory"
+      drawerContent={(props) => <AppDrawerContent {...props} onLogout={onLogout} />}
       screenOptions={{
+        drawerStyle: {
+          width: drawerWidth,
+        },
         headerStyle: {
           backgroundColor: '#ffffff',
         },
@@ -84,8 +178,15 @@ function DrawerNavigator() {
         },
       }}
     >
+      <Drawer.Screen
+        name="AccountProfile"
+        component={AccountProfileScreen}
+        options={{ title: t('screens.accountProfile'), drawerItemStyle: { display: 'none' } }}
+      />
       <Drawer.Screen name="ShoppingList" component={ShoppingListScreen} options={{ title: t('screens.shoppingList') }} />
       <Drawer.Screen name="Inventory" component={InventoryScreen} options={{ title: t('screens.inventory') }} />
+      <Drawer.Screen name="Settings" component={SettingsScreen} options={{ title: t('screens.settings') }} />
+      <Drawer.Screen name="Members" component={MembersScreen} options={{ title: t('screens.members') }} />
       <Drawer.Screen name="Chat" component={ChatScreen} options={{ title: t('screens.chat') }} />
       <Drawer.Screen name="Reports" component={ReportsScreen} options={{ title: t('screens.reports') }} />
       <Drawer.Screen name="Store" component={StoreScreen} options={{ title: t('screens.store') }} />
@@ -114,6 +215,22 @@ export default function App() {
   const { t } = useTranslation();
   const [initialRoute, setInitialRoute] = React.useState<keyof RootStackParamList | undefined>(undefined);
   const [loading, setLoading] = React.useState(true);
+
+  const handleLogout = React.useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Even if remote sign-out fails, clear local auth state to force fresh login.
+    }
+
+    await AsyncStorage.multiRemove(['supabaseSession', 'localAuth']);
+
+    if (navigationRef.isReady()) {
+      navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } else {
+      setInitialRoute('Login');
+    }
+  }, []);
 
   const handleRecoveryLink = React.useCallback(async (url: string | null, shouldNavigate: boolean) => {
     if (!url || !url.includes('reset-password')) {
@@ -240,9 +357,39 @@ export default function App() {
           <Stack.Screen name="Register" component={RegistrationScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-          <Stack.Screen name="Main" component={DrawerNavigator} />
+          <Stack.Screen name="Main">
+            {() => <DrawerNavigator onLogout={handleLogout} />}
+          </Stack.Screen>
+          <Stack.Screen
+            name="BarcodeScanner"
+            component={BarcodeScannerScreen}
+            options={{ headerShown: true, title: t('screens.barcodeScanner') }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  drawerContentWrapper: {
+    flex: 1,
+  },
+  drawerScrollContent: {
+    paddingTop: 0,
+  },
+  accountHeaderWrap: {
+    paddingTop: 8,
+  },
+  accountDivider: {
+    height: 1,
+    backgroundColor: '#D0CBEA',
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  drawerFooter: {
+    borderTopWidth: 1,
+    borderTopColor: '#D0CBEA',
+    paddingBottom: 8,
+  },
+});

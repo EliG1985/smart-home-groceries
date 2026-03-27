@@ -4,6 +4,8 @@
     "email": "אימייל",
     "password": "סיסמה",
     "loading": "טוען...",
+    "logout": "התנתקות",
+    "loggingOut": "מתנתק...",
     "backToLogin": "חזרה להתחברות",
     "continue": "המשך",
     "optional": "אופציונלי",
@@ -15,6 +17,10 @@
     "resetPass": "איפוס סיסמה",
     "inventory": "מלאי ביתי",
     "shoppingList": "רשימת קניות",
+    "barcodeScanner": "סורק ברקוד",
+    "accountProfile": "פרופיל חשבון",
+    "settings": "הגדרות מלאות",
+    "members": "חברי בית",
     "chat": "צ'אט",
     "reports": "דוחות",
     "store": "חנות"
@@ -99,6 +105,7 @@
   "shoppingList": {
     "totalPrefix": "סה\"כ",
     "openAdd": "הוסף פריט",
+    "openScanner": "סרוק ברקוד",
     "closeAdd": "סגור",
     "save": "שמור פריט",
     "saving": "שומר...",
@@ -118,9 +125,36 @@
     "updateFailedTitle": "לא ניתן לעדכן פריט",
     "deleteFailedTitle": "לא ניתן למחוק פריט",
     "batchFailedTitle": "פעולה מרובה נכשלה",
+    "productTitle": "פרטי מוצר",
+    "barcodeTitle": "סיוע ברקוד",
+    "barcodePlaceholder": "ברקוד (8-14 ספרות)",
+    "barcodeLookup": "חפש",
+    "barcodeLookupLoading": "מחפש...",
+    "barcodeLookupFound": "נמצאה התאמה לברקוד (מקור: {{source}})",
+    "barcodeLookupMiss": "לא נמצאה התאמה. אפשר להמשיך בהוספה ידנית.",
+    "barcodeLookupFailed": "לא ניתן להשלים כרגע חיפוש ברקוד.",
+    "barcodeValidation": "ברקוד חייב להכיל בין 8 ל-14 ספרות.",
     "validationTitle": "פריט לא תקין",
-    "validationRequired": "שם מוצר, קטגוריה ותאריך תפוגה תקין הם שדות חובה.",
+    "validationRequired": "שם מוצר וקטגוריה הם שדות חובה.",
+    "validationExpiry": "אם מוזן תאריך תפוגה, הוא חייב להיות תקין.",
     "validationNumbers": "מחיר חייב להיות 0 ומעלה וכמות חייבת להיות גדולה מ-0.",
+    "edit": "עריכה",
+    "saveEdit": "שמור",
+    "cancelEdit": "ביטול",
+    "suggestionsTitle": "הצעות חכמות הוחלו",
+    "suggestionAcceptHint": "השדות מולאו — ערוך אם נדרש.",
+    "unknownBarcodeTitle": "ברקוד לא מוכר",
+    "unknownBarcodeBody": "לא נמצא מוצר. מלא את הפרטים למטה ואנו נזכור זאת לפעם הבאה.",
+    "confidence": {
+      "high": "גבוהה",
+      "medium": "בינונית",
+      "low": "נמוכה"
+    },
+    "suggestionField": {
+      "category": "קטגוריה",
+      "price": "מחיר",
+      "quantity": "כמות"
+    },
     "detailsTemplate": "קטגוריה: {{category}} | כמות: {{quantity}} | תפוגה: {{expiryDate}}",
     "form": {
       "productName": "שם מוצר",
@@ -129,6 +163,18 @@
       "price": "מחיר",
       "quantity": "כמות"
     }
+  },
+  "scanner": {
+    "title": "סורק ברקוד",
+    "permissionBody": "נדרשת הרשאת מצלמה כדי לסרוק ברקודים.",
+    "permissionGrant": "אשר גישה למצלמה",
+    "permissionOpenSettings": "פתח הגדרות",
+    "torchOn": "הפעל פנס",
+    "torchOff": "כבה פנס",
+    "backToList": "חזרה לרשימה",
+    "manualTitle": "הזנה ידנית של ברקוד",
+    "manualPlaceholder": "הזן ספרות ברקוד",
+    "manualUse": "השתמש בברקוד"
   },
   "inventory": {
     "totalValuePrefix": "שווי במלאי הביתי",

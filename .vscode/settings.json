@@ -1,6 +1,18 @@
 {
     "java.compile.nullAnalysis.mode": "automatic",
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.gradle.enabled": false,
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/bower_components/**"
+    ],
+    "java.project.resourceFilters": [
+        "node_modules",
+        "\\.git",
+        "\\.gradle",
+        "build"
+    ],
     "java.import.gradle.java.home": "C:/Program Files/Eclipse Adoptium/jdk-17.0.17.10-hotspot",
     "java.configuration.runtimes": [
         {
@@ -9,6 +21,9 @@
             "default": true
         }
     ],
+    "files.associations": {
+        "**/node_modules/**/*.gradle": "plaintext"
+    },
     "files.watcherExclude": {
         "**/node_modules/**": true
     },
