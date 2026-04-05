@@ -9,6 +9,7 @@ import LanguageSelector from './LanguageSelector';
 import AppButton from '../ui/AppButton';
 import { colors, spacing, borderRadius, fontSizes } from '../ui/theme';
 import { loadDraft, saveDraft } from '../utils/formDraftStorage';
+import { getPendingInviteToken } from '../utils/inviteLink';
 import { supabase } from '../utils/supabaseClient';
 
 type RootStackParamList = {
@@ -33,10 +34,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hasPendingInvite, setHasPendingInvite] = useState(false);
 
   React.useEffect(() => {
     loadDraft<{ email: string }>('login', { email: '' }).then((draft) => {
       setEmail(draft.email);
+    });
+
+    getPendingInviteToken().then((token) => {
+      setHasPendingInvite(Boolean(token));
     });
   }, []);
 
@@ -77,6 +83,12 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       try {
         const localAuth = await AsyncStorage.getItem('localAuth');
         if (localAuth) {
+          if (hasPendingInvite) {
+            setLoading(false);
+            Alert.alert(t('members.pendingInviteOfflineTitle'), t('members.pendingInviteOfflineBody'));
+            return;
+          }
+
           const { email: savedEmail, hash } = JSON.parse(localAuth);
           const inputHash = await Crypto.digestStringAsync(
             Crypto.CryptoDigestAlgorithm.SHA256,
@@ -115,6 +127,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         <LanguageSelector />
       </View>
       <Text style={styles.title}>{t('screens.login')}</Text>
+      {hasPendingInvite ? (
+        <View style={styles.inviteHintBox}>
+          <Text style={styles.inviteHintText}>{t('members.pendingInviteBody')}</Text>
+        </View>
+      ) : null}
       <TextInput
         style={styles.input}
         placeholder={t('placeholders.email')}
@@ -191,5 +208,21 @@ const styles = StyleSheet.create({
   },
   recoveryButton: {
     backgroundColor: colors.textSecondary,
+  },
+  inviteHintBox: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: borderRadius,
+    borderWidth: 1,
+    borderColor: '#B8E2D2',
+    backgroundColor: '#F1FFF8',
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  inviteHintText: {
+    color: '#1F6A4D',
+    fontSize: fontSizes.small,
+    lineHeight: 20,
+    textAlign: 'center',
   },
 });

@@ -14,6 +14,7 @@ if (Platform.OS === 'android' || Platform.OS === 'ios') {
 import { supabase } from '../utils/supabaseClient';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { clearDraft, loadDraft, saveDraft } from '../utils/formDraftStorage';
+import { getPendingInviteToken } from '../utils/inviteLink';
 
 type RootStackParamList = {
   Login: undefined;
@@ -50,6 +51,7 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [hasPendingInvite, setHasPendingInvite] = useState(false);
 
   React.useEffect(() => {
     loadDraft<{ fullName: string; phone: string; city: string; email: string; birthday: string | null }>('register', {
@@ -64,6 +66,10 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
       setCity(draft.city);
       setEmail(draft.email);
       setBirthday(draft.birthday ? new Date(draft.birthday) : null);
+    });
+
+    getPendingInviteToken().then((token) => {
+      setHasPendingInvite(Boolean(token));
     });
   }, []);
 
@@ -141,6 +147,7 @@ export default function RegistrationScreen({ navigation }: RegistrationScreenPro
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>{t('screens.register')}</Text>
+      {hasPendingInvite ? <Text style={styles.inviteHint}>{t('members.pendingInviteRegisterBody')}</Text> : null}
       <Text style={styles.legend}>
         <Text style={styles.required}>*</Text> {t('common.requiredFields')}
       </Text>
@@ -291,6 +298,20 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: '#555',
     fontSize: 13,
+  },
+  inviteHint: {
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#B8E2D2',
+    backgroundColor: '#F1FFF8',
+    color: '#1F6A4D',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   fieldWrapper: {
     width: '100%',

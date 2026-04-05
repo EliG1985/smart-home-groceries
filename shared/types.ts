@@ -119,6 +119,78 @@ export type BarcodeCacheResponse = {
   value?: BarcodeLookupResponse;
 };
 
+export type CollaborationRole = 'admin' | 'editor' | 'viewer';
+
+export type CollaborationShoppingPermissions = {
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  markDone: boolean;
+  viewProgress: boolean;
+};
+
+export type CollaborationParticipant = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: CollaborationRole;
+  permissions: CollaborationShoppingPermissions;
+};
+
+export type CollaborationInviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
+
+export type CollaborationInvite = {
+  id: string;
+  token: string;
+  email: string;
+  role: CollaborationRole;
+  permissions: CollaborationShoppingPermissions;
+  status: CollaborationInviteStatus;
+  expiresAt: string;
+};
+
+export type CollaborationMessageType = 'text' | 'image' | 'audio' | 'suggestion';
+
+export type CollaborationMessage = {
+  id: string;
+  familyId: string;
+  senderId: string;
+  content: string;
+  messageType: CollaborationMessageType;
+  createdAt: string;
+  updatedAt: string;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+};
+
+export type CollaborationMessageReceipt = {
+  messageId: string;
+  userId: string;
+  deliveredAt: string;
+  seenAt?: string | null;
+};
+
+export type CollaborationActivityEventType =
+  | 'member_invited'
+  | 'invite_accepted'
+  | 'invite_revoked'
+  | 'member_removed'
+  | 'chat_message_sent'
+  | 'chat_message_edited'
+  | 'chat_message_deleted'
+  | 'shopping_item_updated';
+
+export type CollaborationActivityEvent = {
+  id: string;
+  familyId: string;
+  actorId: string;
+  eventType: CollaborationActivityEventType;
+  entityType: string;
+  entityId: string;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type ChatMessage = {
   id: string;
   familyId: string;
@@ -140,4 +212,46 @@ export type StoreItem = {
   type: 'coin_pack' | 'feature_unlock' | 'skin' | 'subscription';
   price: number;
   coinAmount?: number;
+};
+
+export type SupermarketPriceSource = 'clean_room_snapshot';
+
+export type SupermarketPriceLookupRequest = {
+  barcode: string;
+  chainIds?: string[];
+  city?: string;
+  storeId?: string;
+  maxResults?: number;
+};
+
+export type SupermarketPriceQuote = {
+  chainId: string;
+  chainName: string;
+  storeId: string;
+  storeName: string;
+  city: string;
+  barcode: string;
+  productName: string;
+  price: number;
+  currency: 'ILS';
+  promoText?: string;
+  lastUpdated: string;
+};
+
+export type SupermarketPriceLookupResponse = {
+  barcode: string;
+  found: boolean;
+  source: SupermarketPriceSource;
+  results: SupermarketPriceQuote[];
+  bestPrice?: SupermarketPriceQuote;
+  chains: Array<{
+    id: string;
+    name: string;
+    cities: string[];
+    stores: Array<{
+      id: string;
+      name: string;
+      city: string;
+    }>;
+  }>;
 };

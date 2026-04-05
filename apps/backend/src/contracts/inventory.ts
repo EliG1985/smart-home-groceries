@@ -1,6 +1,14 @@
 export type InventoryStatus = 'In_List' | 'At_Home';
-export type UserRole = 'owner' | 'editor' | 'viewer';
+export type UserRole = 'admin' | 'editor' | 'viewer';
 export type SubscriptionTier = 'Free' | 'Premium';
+
+export type ShoppingPermissions = {
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  markDone: boolean;
+  viewProgress: boolean;
+};
 
 export type InventoryItemDto = {
   id: string;

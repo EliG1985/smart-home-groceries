@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import AppButton from '../ui/AppButton';
 import { borderRadius, colors, fontSizes, spacing } from '../ui/theme';
-import type { ShoppingListItem, SmartSuggestion } from '../../../shared/types';
+import type { ShoppingListItem, SmartSuggestion, SupermarketPriceLookupResponse } from '../../../shared/types';
 import { trackEvent, newTraceId } from '../utils/telemetry';
 import {
 	ApiRequestError,
@@ -27,6 +27,7 @@ import {
 	enrichBarcodeMapping,
 	fetchShoppingListItems,
 	lookupBarcode,
+	lookupSupermarketPrice,
 	markItemAsBought,
 	replayPendingInventoryWrites,
 	subscribeInventoryLiveUpdates,
@@ -35,6 +36,7 @@ import {
 } from '../utils/inventoryApi';
 import { addNetInfoListener } from '../utils/netInfoSafe';
 import { getUserContext } from '../utils/userContext';
+import type { ShoppingPermissions } from '../utils/userContext';
 
 type GroupedSection = {
 	title: string;
@@ -49,7 +51,37 @@ type NewItemForm = {
 	quantity: string;
 };
 
+type CompletionEvent = {
+	id: string;
+	productName: string;
+	completedAt: string;
+};
+
+type EditConflictState = {
+	item: ShoppingListItem;
+	detectedAt: string;
+};
+
+type RecentItemUpdate = {
+	by: string;
+	at: string;
+};
+
+type WriteRecoveryState = {
+	message: string;
+	retry: () => void;
+};
+
 const CACHE_KEY = 'shoppingListCache';
+const RECENT_UPDATE_WINDOW_MS = 1000 * 60 * 5;
+
+const defaultShoppingPermissions: ShoppingPermissions = {
+	create: true,
+	edit: true,
+	delete: true,
+	markDone: true,
+	viewProgress: true,
+};
 
 const initialForm: NewItemForm = {
 	productName: '',
@@ -132,18 +164,34 @@ export default function ShoppingListScreen() {
 	const [editForm, setEditForm] = React.useState<NewItemForm>(initialEditForm);
 	const [detailsOpen, setDetailsOpen] = React.useState<Record<string, boolean>>({});
 	const [selectedIds, setSelectedIds] = React.useState<Record<string, boolean>>({});
-	const [canWrite, setCanWrite] = React.useState(true);
-	const [writeBlockedMessage, setWriteBlockedMessage] = React.useState<string | null>(null);
+	const [permissions, setPermissions] = React.useState<ShoppingPermissions>(defaultShoppingPermissions);
+	const [blockedMessages, setBlockedMessages] = React.useState<Partial<Record<keyof ShoppingPermissions, string>>>({});
 	const [barcodeInput, setBarcodeInput] = React.useState('');
 	const [barcodeLoading, setBarcodeLoading] = React.useState(false);
 	const [barcodeStatus, setBarcodeStatus] = React.useState<string | null>(null);
 	const [pendingEnrichBarcode, setPendingEnrichBarcode] = React.useState<string | null>(null);
 	const [lastSuggestions, setLastSuggestions] = React.useState<SmartSuggestion[]>([]);
 	const [lookupNotFound, setLookupNotFound] = React.useState(false);
+	const [marketPriceQuote, setMarketPriceQuote] = React.useState<SupermarketPriceLookupResponse | null>(null);
+	const [completionFeed, setCompletionFeed] = React.useState<CompletionEvent[]>([]);
+	const [editConflict, setEditConflict] = React.useState<EditConflictState | null>(null);
+	const [recentUpdates, setRecentUpdates] = React.useState<Record<string, RecentItemUpdate>>({});
+	const [writeRecovery, setWriteRecovery] = React.useState<WriteRecoveryState | null>(null);
+	const [currentUserId, setCurrentUserId] = React.useState('');
 	const scanTraceIdRef = React.useRef<string | null>(null);
 	const scanStartedAtRef = React.useRef<number | null>(null);
 	const lookupCompletedAtRef = React.useRef<number | null>(null);
 	const formAtLookupRef = React.useRef<NewItemForm | null>(null);
+	const editingItemIdRef = React.useRef<string | null>(null);
+	const editFormRef = React.useRef<NewItemForm>(initialEditForm);
+
+	React.useEffect(() => {
+		editingItemIdRef.current = editingItemId;
+	}, [editingItemId]);
+
+	React.useEffect(() => {
+		editFormRef.current = editForm;
+	}, [editForm]);
 
 	const sections = React.useMemo(() => groupByCategory(items), [items]);
 	const selectedCount = React.useMemo(
@@ -158,37 +206,75 @@ export default function ShoppingListScreen() {
 		[selectedIds],
 	);
 
+	const addCompletionEvents = React.useCallback((entries: Array<{ id: string; productName: string }>) => {
+		const now = new Date().toISOString();
+		setCompletionFeed((previous) => {
+			const mapped = entries.map((entry) => ({
+				id: entry.id,
+				productName: entry.productName,
+				completedAt: now,
+			}));
+			const merged = [...mapped, ...previous.filter((item) => !entries.some((entry) => entry.id === item.id))];
+			return merged.slice(0, 8);
+		});
+	}, []);
+
 	const refreshWriteAccess = React.useCallback(async () => {
 		const context = await getUserContext();
-		if (context.role === 'viewer') {
-			setCanWrite(false);
-			setWriteBlockedMessage(t('permissions.viewerWriteBlocked'));
-			return;
-		}
+		setCurrentUserId(context.userId);
+
+		const nextPermissions = { ...context.permissions };
+		const messages: Partial<Record<keyof ShoppingPermissions, string>> = {};
+
 		if (context.familyMembersCount > 1 && context.subscriptionTier !== 'Premium') {
-			setCanWrite(false);
-			setWriteBlockedMessage(t('permissions.premiumRequired'));
-			return;
+			nextPermissions.create = false;
+			nextPermissions.edit = false;
+			nextPermissions.delete = false;
+			nextPermissions.markDone = false;
+			messages.create = t('permissions.premiumRequired');
+			messages.edit = t('permissions.premiumRequired');
+			messages.delete = t('permissions.premiumRequired');
+			messages.markDone = t('permissions.premiumRequired');
+		} else {
+			if (!nextPermissions.create) messages.create = t('permissions.noCreatePermission');
+			if (!nextPermissions.edit) messages.edit = t('permissions.noEditPermission');
+			if (!nextPermissions.delete) messages.delete = t('permissions.noDeletePermission');
+			if (!nextPermissions.markDone) messages.markDone = t('permissions.noMarkDonePermission');
 		}
 
-		setCanWrite(true);
-		setWriteBlockedMessage(null);
+		setPermissions(nextPermissions);
+		setBlockedMessages(messages);
 	}, [t]);
 
-	const ensureCanWrite = React.useCallback(() => {
-		if (canWrite) {
+	const ensurePermission = React.useCallback((action: keyof ShoppingPermissions) => {
+		if (permissions[action]) {
 			return true;
 		}
 
 		Alert.alert(
 			t('shoppingList.updateFailedTitle'),
-			writeBlockedMessage ?? t('permissions.viewerWriteBlocked'),
+			blockedMessages[action] ?? t('permissions.viewerWriteBlocked'),
 		);
 		return false;
-	}, [canWrite, t, writeBlockedMessage]);
+	}, [blockedMessages, permissions, t]);
 
 	const persistCache = React.useCallback(async (nextItems: ShoppingListItem[]) => {
 		await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(nextItems));
+	}, []);
+
+	const hydrateFromCache = React.useCallback(async (): Promise<boolean> => {
+		const cached = await AsyncStorage.getItem(CACHE_KEY);
+		if (!cached) {
+			return false;
+		}
+
+		try {
+			const parsed = JSON.parse(cached) as ShoppingListItem[];
+			setItems(parsed);
+			return true;
+		} catch {
+			return false;
+		}
 	}, []);
 
 	const getActionErrorMessage = React.useCallback(
@@ -196,6 +282,9 @@ export default function ShoppingListScreen() {
 			if (error instanceof ApiRequestError) {
 				if (error.code === 'FORBIDDEN_ROLE') {
 					return t('permissions.viewerWriteBlocked');
+				}
+				if (error.code === 'FORBIDDEN_PERMISSION') {
+					return t('permissions.permissionDenied');
 				}
 				if (error.code === 'PREMIUM_REQUIRED') {
 					return t('permissions.premiumRequired');
@@ -208,6 +297,31 @@ export default function ShoppingListScreen() {
 		[t],
 	);
 
+	const setRecentItemUpdate = React.useCallback((itemId: string, by: string, at?: string) => {
+		if (!itemId || !by) {
+			return;
+		}
+
+		setRecentUpdates((previous) => ({
+			...previous,
+			[itemId]: {
+				by,
+				at: at ?? new Date().toISOString(),
+			},
+		}));
+	}, []);
+
+	const clearWriteRecovery = React.useCallback(() => {
+		setWriteRecovery(null);
+	}, []);
+
+	const showWriteRecovery = React.useCallback((error: unknown, retry: () => void) => {
+		setWriteRecovery({
+			message: getActionErrorMessage(error),
+			retry,
+		});
+	}, [getActionErrorMessage]);
+
 	const loadList = React.useCallback(async (options?: { silent?: boolean }) => {
 		const silent = Boolean(options?.silent);
 		try {
@@ -215,34 +329,32 @@ export default function ShoppingListScreen() {
 			setItems(fetched);
 			await persistCache(fetched);
 		} catch (error) {
-			const cached = await AsyncStorage.getItem(CACHE_KEY);
-			if (cached) {
-				try {
-					const parsed = JSON.parse(cached) as ShoppingListItem[];
-					setItems(parsed);
-					if (!silent) {
-						Alert.alert(
-							t('shoppingList.offlineTitle'),
-							t('shoppingList.offlineBody'),
-						);
-					}
-					return;
-				} catch {
-					// Ignore cache parse errors and show request failure below.
-				}
+			const hydrated = await hydrateFromCache();
+			if (hydrated) {
+				return;
 			}
 
 			if (!silent) {
 				Alert.alert(t('shoppingList.loadFailedTitle'), getActionErrorMessage(error));
 			}
 		}
-	}, [getActionErrorMessage, persistCache, t]);
+	}, [getActionErrorMessage, hydrateFromCache, persistCache, t]);
 
 	React.useEffect(() => {
+		let isMounted = true;
 		refreshWriteAccess().catch(() => undefined);
-		loadList()
-			.finally(() => setLoading(false));
-	}, [loadList, refreshWriteAccess]);
+		hydrateFromCache()
+			.finally(() => {
+				if (isMounted) {
+					setLoading(false);
+				}
+				loadList({ silent: true }).catch(() => undefined);
+			});
+
+		return () => {
+			isMounted = false;
+		};
+	}, [hydrateFromCache, loadList, refreshWriteAccess]);
 
 	const handleLiveEvent = React.useCallback((event: InventoryLiveEvent) => {
 		if (event.type === 'reload') {
@@ -250,15 +362,45 @@ export default function ShoppingListScreen() {
 			return;
 		}
 		if (event.type === 'delete') {
+			setRecentUpdates((previous) => {
+				if (!previous[event.id]) {
+					return previous;
+				}
+				const next = { ...previous };
+				delete next[event.id];
+				return next;
+			});
 			setItems((prev) => prev.filter((i) => i.id !== event.id));
 			return;
 		}
 		if (event.type === 'upsert') {
+			setRecentItemUpdate(event.item.id, event.item.addedBy, new Date().toISOString());
 			if (event.item.status !== 'In_List') {
+				addCompletionEvents([{ id: event.item.id, productName: event.item.productName }]);
 				// Item moved to At_Home — remove from list
 				setItems((prev) => prev.filter((i) => i.id !== event.item.id));
+				if (editingItemIdRef.current === event.item.id) {
+					setEditConflict({ item: event.item, detectedAt: new Date().toISOString() });
+				}
 				return;
 			}
+
+			if (editingItemIdRef.current === event.item.id) {
+				const formSnapshot = editFormRef.current;
+				const price = Number(formSnapshot.price);
+				const quantity = Number(formSnapshot.quantity);
+				const hasConflict =
+					formSnapshot.productName.trim() !== event.item.productName ||
+					formSnapshot.category.trim() !== event.item.category ||
+					formSnapshot.expiryDate !== event.item.expiryDate ||
+					(Number.isFinite(price) ? price : event.item.price) !== event.item.price ||
+					(Number.isFinite(quantity) ? quantity : event.item.quantity) !== event.item.quantity;
+
+				if (hasConflict) {
+					setEditConflict({ item: event.item, detectedAt: new Date().toISOString() });
+				}
+			}
+
 			setItems((prev) => {
 				const idx = prev.findIndex((i) => i.id === event.item.id);
 				if (idx >= 0) {
@@ -269,7 +411,26 @@ export default function ShoppingListScreen() {
 				return [event.item, ...prev];
 			});
 		}
-	}, [loadList]);
+	}, [addCompletionEvents, loadList, setRecentItemUpdate]);
+
+	const recentUpdateLabel = React.useCallback((item: ShoppingListItem): string | null => {
+		const recent = recentUpdates[item.id];
+		if (!recent) {
+			return null;
+		}
+
+		const ts = Date.parse(recent.at);
+		if (!Number.isFinite(ts)) {
+			return null;
+		}
+
+		if (Date.now() - ts > RECENT_UPDATE_WINDOW_MS) {
+			return null;
+		}
+
+		const who = recent.by === currentUserId ? t('shoppingList.updatedByYou') : recent.by;
+		return t('shoppingList.updatedBy', { user: who });
+	}, [currentUserId, recentUpdates, t]);
 
 	const subscriptionRef = React.useRef<(() => void) | null>(null);
 
@@ -362,6 +523,7 @@ export default function ShoppingListScreen() {
 	const closeEdit = () => {
 		setEditingItemId(null);
 		setEditForm(initialEditForm);
+		setEditConflict(null);
 	};
 
 	const updateForm = (field: keyof NewItemForm, value: string) => {
@@ -372,6 +534,7 @@ export default function ShoppingListScreen() {
 		setShowAddForm((previous) => !previous);
 		setLastSuggestions([]);
 		setLookupNotFound(false);
+		setMarketPriceQuote(null);
 		setBarcodeInput('');
 		setBarcodeStatus(null);
 		formAtLookupRef.current = null;
@@ -384,6 +547,7 @@ export default function ShoppingListScreen() {
 		setPendingEnrichBarcode(null);
 		setLastSuggestions([]);
 		setLookupNotFound(false);
+		setMarketPriceQuote(null);
 		scanTraceIdRef.current = null;
 		scanStartedAtRef.current = null;
 		lookupCompletedAtRef.current = null;
@@ -434,7 +598,7 @@ export default function ShoppingListScreen() {
 			return false;
 		}
 
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('create')) {
 			return false;
 		}
 
@@ -490,6 +654,7 @@ export default function ShoppingListScreen() {
 
 			const nextItems = [created, ...items];
 			setItems(nextItems);
+			setRecentItemUpdate(created.id, currentUserId || created.addedBy, new Date().toISOString());
 			await persistCache(nextItems);
 
 			const barcodeToEnrich = options?.enrichBarcode ?? pendingEnrichBarcode;
@@ -518,12 +683,14 @@ export default function ShoppingListScreen() {
 			return true;
 		} catch (error) {
 			trackEvent('save_failure', traceId, { error: getActionErrorMessage(error) });
-			Alert.alert(t('shoppingList.createFailedTitle'), getActionErrorMessage(error));
+			showWriteRecovery(error, () => {
+				saveFormToShoppingList(nextForm, options).catch(() => undefined);
+			});
 			return false;
 		} finally {
 			setSubmitting(false);
 		}
-	}, [ensureCanWrite, getActionErrorMessage, items, lastSuggestions, pendingEnrichBarcode, persistCache, resetAddFlow, submitting, t]);
+	}, [currentUserId, ensurePermission, getActionErrorMessage, items, lastSuggestions, pendingEnrichBarcode, persistCache, resetAddFlow, setRecentItemUpdate, showWriteRecovery, submitting, t]);
 
 	const runLookupByBarcode = React.useCallback(async (
 		value: string,
@@ -560,6 +727,16 @@ export default function ShoppingListScreen() {
 			);
 			const nextForm = applyLookupToForm(response);
 			setPendingEnrichBarcode(barcode);
+			// Non-blocking supermarket price lookup — enriches price field if no smart suggestion
+			lookupSupermarketPrice(barcode).then((priceResp) => {
+				if (priceResp?.found && priceResp.bestPrice) {
+					setMarketPriceQuote(priceResp);
+					setForm((prev) => ({
+						...prev,
+						price: prev.price === '0' ? String(priceResp.bestPrice!.price) : prev.price,
+					}));
+				}
+			}).catch(() => undefined);
 			if (options?.autoAddOnFound && response.found) {
 				await saveFormToShoppingList(nextForm, { enrichBarcode: barcode });
 			}
@@ -598,7 +775,7 @@ export default function ShoppingListScreen() {
 	};
 
 	const onSaveEdit = async () => {
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('edit')) {
 			return;
 		}
 
@@ -638,6 +815,7 @@ export default function ShoppingListScreen() {
 				: item,
 		);
 		setItems(nextItems);
+		setRecentItemUpdate(editingItemId, currentUserId || 'unknown', new Date().toISOString());
 
 		try {
 			await updateInventoryItem(editingItemId, {
@@ -651,12 +829,52 @@ export default function ShoppingListScreen() {
 			closeEdit();
 		} catch (error) {
 			setItems(previousItems);
-			Alert.alert(t('shoppingList.updateFailedTitle'), getActionErrorMessage(error));
+			if (error instanceof ApiRequestError && error.code === 'NOT_FOUND') {
+				setEditConflict({
+					item: {
+						id: editingItemId,
+						productName: editForm.productName,
+						category: editForm.category,
+						expiryDate: editForm.expiryDate,
+						status: 'In_List',
+						price,
+						quantity,
+						addedBy: '',
+					},
+					detectedAt: new Date().toISOString(),
+				});
+			}
+			if (!(error instanceof ApiRequestError && error.code === 'NOT_FOUND')) {
+				showWriteRecovery(error, () => {
+					onSaveEdit().catch(() => undefined);
+				});
+			}
 		}
 	};
 
+	const onResolveConflictRefresh = React.useCallback(() => {
+		setEditConflict(null);
+		loadList({ silent: true }).catch(() => undefined);
+		closeEdit();
+	}, [loadList]);
+
+	const onResolveConflictUseRemote = React.useCallback(() => {
+		if (!editConflict) {
+			return;
+		}
+		setEditingItemId(editConflict.item.id);
+		setEditForm({
+			productName: editConflict.item.productName,
+			category: editConflict.item.category,
+			expiryDate: editConflict.item.expiryDate,
+			price: String(editConflict.item.price),
+			quantity: String(editConflict.item.quantity),
+		});
+		setEditConflict(null);
+	}, [editConflict]);
+
 	const onMarkBought = async (item: ShoppingListItem) => {
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('markDone')) {
 			return;
 		}
 
@@ -671,15 +889,18 @@ export default function ShoppingListScreen() {
 
 		try {
 			await markItemAsBought(item.id);
+			addCompletionEvents([{ id: item.id, productName: item.productName }]);
 			await persistCache(nextItems);
 		} catch (error) {
 			setItems(previousItems);
-			Alert.alert(t('shoppingList.updateFailedTitle'), getActionErrorMessage(error));
+			showWriteRecovery(error, () => {
+				onMarkBought(item).catch(() => undefined);
+			});
 		}
 	};
 
 	const onDeleteItem = async (item: ShoppingListItem) => {
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('delete')) {
 			return;
 		}
 
@@ -697,12 +918,14 @@ export default function ShoppingListScreen() {
 			await persistCache(nextItems);
 		} catch (error) {
 			setItems(previousItems);
-			Alert.alert(t('shoppingList.deleteFailedTitle'), getActionErrorMessage(error));
+			showWriteRecovery(error, () => {
+				onDeleteItem(item).catch(() => undefined);
+			});
 		}
 	};
 
 	const onBatchBuy = async () => {
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('markDone')) {
 			return;
 		}
 
@@ -712,6 +935,9 @@ export default function ShoppingListScreen() {
 
 		const previousItems = items;
 		const selectedSet = new Set(selectedItemIds);
+		const completedItems = items
+			.filter((item) => selectedSet.has(item.id))
+			.map((item) => ({ id: item.id, productName: item.productName }));
 		const nextItems = items.filter((item) => !selectedSet.has(item.id));
 		setItems(nextItems);
 		setSelectedIds({});
@@ -719,17 +945,20 @@ export default function ShoppingListScreen() {
 
 		try {
 			await batchBuyShoppingListItems(selectedItemIds);
+			addCompletionEvents(completedItems);
 			await persistCache(nextItems);
 		} catch (error) {
 			setItems(previousItems);
-			Alert.alert(t('shoppingList.batchFailedTitle'), getActionErrorMessage(error));
+			showWriteRecovery(error, () => {
+				onBatchBuy().catch(() => undefined);
+			});
 		} finally {
 			setBatchLoading(false);
 		}
 	};
 
 	const onBatchDelete = async () => {
-		if (!ensureCanWrite()) {
+		if (!ensurePermission('delete')) {
 			return;
 		}
 
@@ -749,7 +978,9 @@ export default function ShoppingListScreen() {
 			await persistCache(nextItems);
 		} catch (error) {
 			setItems(previousItems);
-			Alert.alert(t('shoppingList.batchFailedTitle'), getActionErrorMessage(error));
+			showWriteRecovery(error, () => {
+				onBatchDelete().catch(() => undefined);
+			});
 		} finally {
 			setBatchLoading(false);
 		}
@@ -773,11 +1004,56 @@ export default function ShoppingListScreen() {
 					<AppButton
 						title={showAddForm ? t('shoppingList.closeAdd') : t('shoppingList.openAdd')}
 						onPress={onToggleAddForm}
-						disabled={!canWrite}
+						disabled={!permissions.create}
 						style={[styles.topButton, compactTopBar ? styles.topButtonCompact : null]}
 					/>
 				</View>
 			</View>
+
+			{permissions.viewProgress && completionFeed.length > 0 ? (
+				<View style={styles.progressCard}>
+					<Text style={styles.progressTitle}>{t('shoppingList.progressTitle')}</Text>
+					{completionFeed.map((entry) => (
+						<Text key={entry.id} style={styles.progressItemText}>
+							{entry.productName}
+						</Text>
+					))}
+				</View>
+			) : null}
+
+			{editConflict ? (
+				<View style={styles.conflictCard}>
+					<Text style={styles.conflictTitle}>{t('shoppingList.conflictTitle')}</Text>
+					<Text style={styles.conflictBody}>{t('shoppingList.conflictBody')}</Text>
+					<View style={styles.conflictActionsRow}>
+						<AppButton title={t('shoppingList.conflictUseRemote')} onPress={onResolveConflictUseRemote} style={styles.conflictActionBtn} />
+						<AppButton title={t('shoppingList.conflictRefresh')} onPress={onResolveConflictRefresh} style={[styles.conflictActionBtn, styles.conflictRefreshBtn]} />
+					</View>
+				</View>
+			) : null}
+
+			{writeRecovery ? (
+				<View style={styles.recoveryCard}>
+					<Text style={styles.recoveryTitle}>{t('shoppingList.recoveryTitle')}</Text>
+					<Text style={styles.recoveryBody}>{writeRecovery.message}</Text>
+					<View style={styles.conflictActionsRow}>
+						<AppButton
+							title={t('shoppingList.recoveryRetry')}
+							onPress={() => {
+								const retry = writeRecovery.retry;
+								clearWriteRecovery();
+								retry();
+							}}
+							style={styles.conflictActionBtn}
+						/>
+						<AppButton
+							title={t('shoppingList.recoveryDismiss')}
+							onPress={clearWriteRecovery}
+							style={[styles.conflictActionBtn, styles.conflictRefreshBtn]}
+						/>
+					</View>
+				</View>
+			) : null}
 
 			{showAddForm ? (
 				<View style={styles.formPanel}>
@@ -841,7 +1117,7 @@ export default function ShoppingListScreen() {
 									title={submitting ? t('shoppingList.saving') : t('shoppingList.save')}
 									onPress={onSubmitNewItem}
 									loading={submitting}
-									disabled={!canWrite}
+									disabled={!permissions.create}
 									style={[styles.saveButton, compactAddForm ? styles.formButtonCompact : null]}
 								/>
 							</View>
@@ -867,6 +1143,22 @@ export default function ShoppingListScreen() {
 									/>
 								</View>
 								{barcodeStatus ? <Text style={styles.barcodeStatus}>{barcodeStatus}</Text> : null}
+								{marketPriceQuote?.found && marketPriceQuote.bestPrice ? (
+									<View style={styles.marketPriceCard}>
+										<Text style={styles.marketPriceTitle}>{t('shoppingList.bestPriceTitle')}</Text>
+										<Text style={styles.marketPriceValue}>
+											{t('shoppingList.bestPriceAt', {
+												price: marketPriceQuote.bestPrice.price.toFixed(2),
+												chain: marketPriceQuote.bestPrice.chainName,
+											})}
+										</Text>
+										{marketPriceQuote.bestPrice.promoText ? (
+											<Text style={styles.marketPricePromo}>
+												{t('shoppingList.bestPricePromo', { text: marketPriceQuote.bestPrice.promoText })}
+											</Text>
+										) : null}
+									</View>
+								) : null}
 								{lastSuggestions.length > 0 ? (
 									<View style={styles.chipsContainer}>
 										<Text style={styles.chipsLabel}>{t('shoppingList.suggestionsTitle')}</Text>
@@ -924,7 +1216,7 @@ export default function ShoppingListScreen() {
 			{items.length > 0 ? (
 				<View style={styles.batchBar}>
 					<View style={styles.batchMetaRow}>
-						<Pressable onPress={canWrite ? onSelectAll : undefined} style={styles.batchSelectButton}>
+						<Pressable onPress={permissions.markDone || permissions.delete ? onSelectAll : undefined} style={styles.batchSelectButton}>
 							<Text style={styles.batchSelectText}>
 								{selectedCount === items.length
 									? t('shoppingList.clearSelection')
@@ -940,14 +1232,14 @@ export default function ShoppingListScreen() {
 							title={t('shoppingList.batchBuy')}
 							onPress={onBatchBuy}
 							loading={batchLoading}
-							disabled={!canWrite || batchLoading || selectedCount === 0}
+							disabled={!permissions.markDone || batchLoading || selectedCount === 0}
 							style={styles.batchButton}
 						/>
 						<AppButton
 							title={t('shoppingList.batchDelete')}
 							onPress={onBatchDelete}
 							loading={batchLoading}
-							disabled={!canWrite || batchLoading || selectedCount === 0}
+							disabled={!permissions.delete || batchLoading || selectedCount === 0}
 							style={[styles.batchButton, styles.batchDeleteButton]}
 						/>
 					</View>
@@ -978,6 +1270,10 @@ export default function ShoppingListScreen() {
 								<Text style={styles.itemName}>{item.productName}</Text>
 								<Text style={styles.itemPrice}>₪{(item.price * item.quantity).toFixed(2)}</Text>
 							</View>
+
+							{recentUpdateLabel(item) ? (
+								<Text style={styles.updatedByText}>{recentUpdateLabel(item)}</Text>
+							) : null}
 
 							{editingItemId === item.id ? (
 								<View style={styles.editCard}>
@@ -1026,7 +1322,7 @@ export default function ShoppingListScreen() {
 										/>
 									</View>
 									<View style={styles.rowGap}>
-										<AppButton title={t('shoppingList.saveEdit')} onPress={onSaveEdit} disabled={!canWrite} style={styles.actionButton} />
+										<AppButton title={t('shoppingList.saveEdit')} onPress={onSaveEdit} disabled={!permissions.edit} style={styles.actionButton} />
 										<AppButton
 											title={t('shoppingList.cancelEdit')}
 											onPress={closeEdit}
@@ -1039,13 +1335,13 @@ export default function ShoppingListScreen() {
 									<Pressable onPress={() => onToggleDetails(item.id)}>
 										<Text style={styles.linkAction}>{t('shoppingList.details')}</Text>
 									</Pressable>
-									<Pressable onPress={canWrite ? () => openEdit(item) : undefined}>
+									<Pressable onPress={permissions.edit ? () => openEdit(item) : undefined}>
 										<Text style={styles.linkAction}>{t('shoppingList.edit')}</Text>
 									</Pressable>
-									<Pressable onPress={canWrite ? () => onMarkBought(item) : undefined}>
+									<Pressable onPress={permissions.markDone ? () => onMarkBought(item) : undefined}>
 										<Text style={styles.linkAction}>{t('shoppingList.markBought')}</Text>
 									</Pressable>
-									<Pressable onPress={canWrite ? () => onDeleteItem(item) : undefined}>
+									<Pressable onPress={permissions.delete ? () => onDeleteItem(item) : undefined}>
 										<Text style={[styles.linkAction, styles.deleteAction]}>{t('shoppingList.delete')}</Text>
 									</Pressable>
 								</View>
@@ -1120,6 +1416,76 @@ const styles = StyleSheet.create({
 		width: '100%',
 		minWidth: 0,
 		marginVertical: 0,
+	},
+	progressCard: {
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: '#A7E8C2',
+		backgroundColor: '#EFFFF6',
+		padding: spacing.sm,
+		marginBottom: spacing.md,
+	},
+	progressTitle: {
+		color: '#0A6A3D',
+		fontWeight: '700',
+		fontSize: fontSizes.small,
+		marginBottom: spacing.xs,
+	},
+	progressItemText: {
+		color: '#0A6A3D',
+		fontSize: 12,
+		textDecorationLine: 'line-through',
+		marginBottom: 2,
+	},
+	conflictCard: {
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: '#F2B24D',
+		backgroundColor: '#FFF6E8',
+		padding: spacing.sm,
+		marginBottom: spacing.md,
+	},
+	conflictTitle: {
+		color: '#8A5200',
+		fontSize: fontSizes.small,
+		fontWeight: '700',
+		marginBottom: 2,
+	},
+	conflictBody: {
+		color: '#7A5A28',
+		fontSize: fontSizes.small,
+	},
+	conflictActionsRow: {
+		marginTop: spacing.sm,
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: spacing.sm,
+	},
+	conflictActionBtn: {
+		flex: 1,
+		minWidth: 0,
+		marginVertical: 0,
+	},
+	conflictRefreshBtn: {
+		backgroundColor: colors.secondary,
+	},
+	recoveryCard: {
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: '#B58AF2',
+		backgroundColor: '#F5EEFF',
+		padding: spacing.sm,
+		marginBottom: spacing.md,
+	},
+	recoveryTitle: {
+		color: '#4B2B86',
+		fontSize: fontSizes.small,
+		fontWeight: '700',
+		marginBottom: 2,
+	},
+	recoveryBody: {
+		color: '#5F4785',
+		fontSize: fontSizes.small,
 	},
 	barcodeTitle: {
 		color: colors.text,
@@ -1225,6 +1591,32 @@ const styles = StyleSheet.create({
 		color: colors.textSecondary,
 		fontSize: fontSizes.small,
 	},
+	marketPriceCard: {
+		backgroundColor: colors.card,
+		borderWidth: 1,
+		borderColor: colors.success,
+		borderRadius: borderRadius,
+		padding: spacing.sm,
+		marginTop: spacing.xs,
+		marginBottom: spacing.xs,
+	},
+	marketPriceTitle: {
+		color: colors.textSecondary,
+		fontWeight: '700',
+		fontSize: fontSizes.small,
+		marginBottom: 2,
+	},
+	marketPriceValue: {
+		color: colors.success,
+		fontSize: fontSizes.small,
+		fontWeight: '700',
+	},
+	marketPricePromo: {
+		color: colors.textSecondary,
+		fontSize: fontSizes.small - 1,
+		fontStyle: 'italic',
+		marginTop: 2,
+	},
 	halfInput: {
 		flex: 1,
 	},
@@ -1314,7 +1706,7 @@ const styles = StyleSheet.create({
 		borderRadius: 4,
 		alignItems: 'center',
 		justifyContent: 'center',
-		marginRight: spacing.sm,
+		marginEnd: spacing.sm,
 	},
 	checkboxText: {
 		color: colors.text,
@@ -1331,6 +1723,12 @@ const styles = StyleSheet.create({
 		color: colors.textSecondary,
 		fontSize: fontSizes.small,
 		fontWeight: '700',
+	},
+	updatedByText: {
+		marginTop: spacing.xs,
+		color: colors.textSecondary,
+		fontSize: 11,
+		fontStyle: 'italic',
 	},
 	itemActions: {
 		marginTop: spacing.sm,

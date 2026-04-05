@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { Alert, I18nManager, View, StyleSheet, Platform } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -11,7 +11,7 @@ const LANGUAGES = [
 const normalizeLanguage = (lang: string) => lang.split('-')[0];
 
 export default function LanguageSelector() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [selected, setSelected] = React.useState<string>(normalizeLanguage(i18n.language));
   // Dynamically require Picker only on native platforms
   const Picker = (Platform.OS === 'android' || Platform.OS === 'ios')
@@ -19,9 +19,14 @@ export default function LanguageSelector() {
     : undefined;
 
   const handleChange = (lang: string) => {
+    const currentIsRTL = I18nManager.isRTL;
+    const nextIsRTL = lang === 'he';
     setSelected(lang);
     i18n.changeLanguage(lang);
     AsyncStorage.setItem('appLanguage', lang);
+    if (currentIsRTL !== nextIsRTL) {
+      Alert.alert(t('settings.rtlRestartTitle'), t('settings.rtlRestartBody'));
+    }
   };
 
   React.useEffect(() => {

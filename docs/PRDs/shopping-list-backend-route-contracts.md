@@ -1,11 +1,11 @@
 # Shopping List Backend Route Contracts
 
 Date: 2026-03-27
-Status: Implemented (in-memory backend scaffold)
+Status: Implemented (Supabase-backed inventory + clean-room snapshot store pricing)
 Base URL: /api
 
 ## 1. Auth/Context Headers (Current Scaffold)
-Until JWT middleware is wired, route guards use request headers:
+Current implementation uses request headers for family scoping and write-guard checks:
 - `x-family-id` (string): family scope identifier. Default: `demo-family`.
 - `x-user-id` (string): user identifier. Default: `demo-user`.
 - `x-user-role` (`owner | editor | viewer`): write role. Default: `owner`.
@@ -64,7 +64,8 @@ Request body (supports snake_case and camelCase keys):
 Required validations:
 - `product_name` required
 - `category` required
-- `expiry_date` required and valid date
+- `expiry_date` must be a valid date when provided
+- `expiry_date` is required for `At_Home` items
 - `status` in `In_List | At_Home`
 - `price >= 0`
 - `quantity > 0`
@@ -134,6 +135,78 @@ Response `200`:
 
 ### 3.8 Compatibility Route
 - `/api/shopping-list/*` is currently aliased to `/api/inventory/*`.
+
+### 3.9 GET /api/store/chains
+Response `200`:
+```json
+{
+  "source": "clean_room_snapshot",
+  "chains": [
+    {
+      "id": "shufersal",
+      "name": "Shufersal",
+      "cities": ["Tel Aviv"],
+      "stores": [
+        { "id": "shufersal-tlv-001", "name": "Shufersal Dizengoff", "city": "Tel Aviv" }
+      ]
+    }
+  ]
+}
+```
+
+### 3.10 POST /api/store/prices/by-barcode
+Request:
+```json
+{
+  "barcode": "7290000000001",
+  "chainIds": ["shufersal"],
+  "city": "Tel Aviv",
+  "storeId": "shufersal-tlv-001",
+  "maxResults": 5
+}
+```
+
+Validation:
+- `barcode` must contain 8-14 digits.
+- `maxResults` must be between 1 and 20 when provided.
+
+Response `200`:
+```json
+{
+  "barcode": "7290000000001",
+  "found": true,
+  "source": "clean_room_snapshot",
+  "results": [
+    {
+      "chainId": "shufersal",
+      "chainName": "Shufersal",
+      "storeId": "shufersal-tlv-001",
+      "storeName": "Shufersal Dizengoff",
+      "city": "Tel Aviv",
+      "barcode": "7290000000001",
+      "productName": "Milk 1L",
+      "price": 6.9,
+      "currency": "ILS",
+      "promoText": "2nd item 10% off",
+      "lastUpdated": "2026-03-27T00:00:00.000Z"
+    }
+  ],
+  "bestPrice": {
+    "chainId": "shufersal",
+    "chainName": "Shufersal",
+    "storeId": "shufersal-tlv-001",
+    "storeName": "Shufersal Dizengoff",
+    "city": "Tel Aviv",
+    "barcode": "7290000000001",
+    "productName": "Milk 1L",
+    "price": 6.9,
+    "currency": "ILS",
+    "promoText": "2nd item 10% off",
+    "lastUpdated": "2026-03-27T00:00:00.000Z"
+  },
+  "chains": []
+}
+```
 
 ## 4. Error Contract
 All errors use the same shape:

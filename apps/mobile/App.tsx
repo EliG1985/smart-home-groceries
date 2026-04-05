@@ -1,4 +1,4 @@
-import './utils/i18n';
+import i18n from './utils/i18n';
 import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -14,26 +14,34 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as ExpoLinking from 'expo-linking';
-import { Dimensions, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Dimensions, Linking, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import ForgotPasswordScreen from './modules/ForgotPasswordScreen';
+import InviteReviewScreen from './modules/InviteReviewScreen';
 import LoginScreen from './modules/LoginScreen';
 import RegistrationScreen from './modules/RegistrationScreen';
 import ResetPasswordScreen from './modules/ResetPasswordScreen';
 import BarcodeScannerScreen from './modules/BarcodeScannerScreen';
+import AccountProfileScreen from './modules/AccountProfileScreen';
+import SettingsScreen from './modules/SettingsScreen';
 import InventoryScreen from './modules/inventory';
+import ChatScreen from './modules/chat';
 import ShoppingListScreen from './modules/shoppingList';
+import {
+  extractInviteTokenFromUrl,
+  getPendingInviteToken,
+  setPendingInviteToken,
+} from './utils/inviteLink';
 import { supabase } from './utils/supabaseClient';
 
-function ChatScreen() {
-  const { t } = useTranslation();
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>{t('messages.chatModule')}</Text>
+const MembersScreenModule = require('./modules/MembersScreen');
+const MembersScreen: React.ComponentType<any> =
+  MembersScreenModule?.default ?? (() => (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <Text>Members screen failed to load.</Text>
     </View>
-  );
-}
+  ));
 
 function ReportsScreen() {
   const { t } = useTranslation();
@@ -53,32 +61,7 @@ function StoreScreen() {
   );
 }
 
-function AccountProfileScreen() {
-  const { t } = useTranslation();
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>{t('screens.accountProfile')}</Text>
-    </View>
-  );
-}
 
-function SettingsScreen() {
-  const { t } = useTranslation();
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>{t('screens.settings')}</Text>
-    </View>
-  );
-}
-
-function MembersScreen() {
-  const { t } = useTranslation();
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>{t('screens.members')}</Text>
-    </View>
-  );
-}
 
 type RootDrawerParamList = {
   AccountProfile: undefined;
@@ -102,6 +85,7 @@ type RootStackParamList = {
   ForgotPassword: undefined;
   ResetPassword: undefined;
   Main: undefined;
+  InviteReview: undefined;
   BarcodeScanner: undefined;
 };
 
@@ -185,11 +169,11 @@ function DrawerNavigator({ onLogout }: { onLogout: () => Promise<void> }) {
       />
       <Drawer.Screen name="ShoppingList" component={ShoppingListScreen} options={{ title: t('screens.shoppingList') }} />
       <Drawer.Screen name="Inventory" component={InventoryScreen} options={{ title: t('screens.inventory') }} />
-      <Drawer.Screen name="Settings" component={SettingsScreen} options={{ title: t('screens.settings') }} />
       <Drawer.Screen name="Members" component={MembersScreen} options={{ title: t('screens.members') }} />
       <Drawer.Screen name="Chat" component={ChatScreen} options={{ title: t('screens.chat') }} />
       <Drawer.Screen name="Reports" component={ReportsScreen} options={{ title: t('screens.reports') }} />
       <Drawer.Screen name="Store" component={StoreScreen} options={{ title: t('screens.store') }} />
+      <Drawer.Screen name="Settings" component={SettingsScreen} options={{ title: t('screens.settings') }} />
     </Drawer.Navigator>
   );
 }
@@ -264,10 +248,68 @@ export default function App() {
     return true;
   }, []);
 
+  const processPendingInvite = React.useCallback(async (shouldNavigate: boolean) => {
+    const token = await getPendingInviteToken();
+    if (!token) {
+      return false;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    if (!data.session?.user) {
+      return false;
+    }
+
+    if (shouldNavigate) {
+      if (navigationRef.isReady()) {
+        navigationRef.reset({ index: 0, routes: [{ name: 'InviteReview' }] });
+      } else {
+        setInitialRoute('InviteReview');
+      }
+    }
+
+    return true;
+  }, []);
+
+  const handleInviteLink = React.useCallback(async (url: string | null, shouldNavigate: boolean) => {
+    const token = extractInviteTokenFromUrl(url);
+    if (!token) {
+      return false;
+    }
+
+    await setPendingInviteToken(token);
+    const { data } = await supabase.auth.getSession();
+
+    if (data.session?.user) {
+      await processPendingInvite(shouldNavigate);
+      return true;
+    }
+
+    if (shouldNavigate) {
+      if (navigationRef.isReady()) {
+        navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
+      } else {
+        setInitialRoute('Login');
+      }
+    }
+
+    Alert.alert(t('members.pendingInviteTitle'), t('members.pendingInviteBody'));
+    return true;
+  }, [processPendingInvite, t]);
+
   React.useEffect(() => {
     let mounted = true;
 
     const restoreSession = async () => {
+      // Restore language (and RTL direction via i18n languageChanged listener) before first render.
+      try {
+        const storedLang = await AsyncStorage.getItem('appLanguage');
+        if (storedLang) {
+          await i18n.changeLanguage(storedLang.split('-')[0]);
+        }
+      } catch {
+        // Non-fatal — default language stays.
+      }
+
       const initialUrl = await Linking.getInitialURL();
       const handledRecovery = await handleRecoveryLink(initialUrl, false);
 
@@ -279,8 +321,22 @@ export default function App() {
         return;
       }
 
+      await handleInviteLink(initialUrl, false);
+
+      const pendingInviteToken = await getPendingInviteToken();
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session?.user) {
+        await processPendingInvite(false);
+        if (mounted) {
+          setInitialRoute(pendingInviteToken ? 'InviteReview' : 'Main');
+          setLoading(false);
+        }
+        return;
+      }
+
       const supabaseSession = await AsyncStorage.getItem('supabaseSession');
-      if (supabaseSession) {
+      if (supabaseSession && !pendingInviteToken) {
         if (mounted) {
           setInitialRoute('Main');
           setLoading(false);
@@ -289,7 +345,7 @@ export default function App() {
       }
 
       const localAuth = await AsyncStorage.getItem('localAuth');
-      if (localAuth) {
+      if (localAuth && !pendingInviteToken) {
         if (mounted) {
           setInitialRoute('Main');
           setLoading(false);
@@ -311,7 +367,14 @@ export default function App() {
     });
 
     const linkSubscription = Linking.addEventListener('url', ({ url }) => {
-      handleRecoveryLink(url, true).catch(() => undefined);
+      handleRecoveryLink(url, true)
+        .then((handled) => {
+          if (!handled) {
+            return handleInviteLink(url, true);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
     });
 
     const {
@@ -319,6 +382,9 @@ export default function App() {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         await AsyncStorage.setItem('supabaseSession', JSON.stringify(session));
+        if (event !== 'PASSWORD_RECOVERY') {
+          await processPendingInvite(true);
+        }
       } else {
         await AsyncStorage.removeItem('supabaseSession');
       }
@@ -357,6 +423,7 @@ export default function App() {
           <Stack.Screen name="Register" component={RegistrationScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          <Stack.Screen name="InviteReview" component={InviteReviewScreen} />
           <Stack.Screen name="Main">
             {() => <DrawerNavigator onLogout={handleLogout} />}
           </Stack.Screen>

@@ -64,6 +64,15 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 PORT=4000
+INVITE_PUBLIC_BASE_URL=https://links.smarthomegroceries.app/invite
+APP_SCHEME=smarthomegroceries
+ANDROID_APP_PACKAGE=com.anonymous.smarthomegroceriesmobile
+ANDROID_APP_SHA256_CERT_FINGERPRINTS=<sha256-fingerprint-1>,<sha256-fingerprint-2>
+IOS_ASSOCIATED_APP_IDS=<team-id>.com.anonymous.smarthomegroceriesmobile
+ANDROID_STORE_URL=https://play.google.com/store/apps/details?id=com.anonymous.smarthomegroceriesmobile
+IOS_STORE_URL=https://apps.apple.com/app/id<app-store-id>
+SMTP_URL=smtps://<username>:<password>@<host>:465
+SMTP_FROM=SmartHome Groceries <noreply@example.com>
 ```
 
 ### 3. Start the backend
@@ -122,6 +131,7 @@ User accounts are created via `supabase.auth.signUp()`. Profile fields (`full_na
 - **Localisation** — English and Hebrew UI strings via i18next; language selector built in
 - **Drawer navigation** — Inventory, Shopping List, Chat, Reports, Store screens (module placeholders)
 - **Web support** — React Native Web; web date picker and conditional platform logic
+- **Collaboration invites** — Admin email invites, HTTPS invite landing links, and automatic in-app acceptance after sign-in
 
 ---
 

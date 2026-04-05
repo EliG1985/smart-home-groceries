@@ -11,12 +11,14 @@ import type {
   InventoryUpdatePayload,
   InventoryListResponse,
   ShoppingListItem,
+  SmartSuggestion,
+  SupermarketPriceLookupRequest,
+  SupermarketPriceLookupResponse,
 } from '../../../shared/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabaseClient';
+import { API_BASE_URL } from './apiBaseUrl';
 import { getUserContext } from './userContext';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '') || 'http://127.0.0.1:4000';
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -31,6 +33,7 @@ type PendingWrite = {
 };
 
 const WRITE_QUEUE_KEY = 'inventoryPendingWrites';
+const REQUEST_TIMEOUT_MS = 8000;
 
 export class ApiRequestError extends Error {
   code?: string;
@@ -166,18 +169,41 @@ let replayPromise: Promise<number> | null = null;
 
 const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const context = await getUserContext();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-family-id': context.familyId,
-      'x-user-id': context.userId,
-      'x-user-role': context.role,
-      'x-subscription-tier': context.subscriptionTier,
-      'x-family-members-count': String(context.familyMembersCount),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    : null;
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-family-id': context.familyId,
+        'x-user-id': context.userId,
+        'x-user-role': context.role,
+        'x-subscription-tier': context.subscriptionTier,
+        'x-family-members-count': String(context.familyMembersCount),
+        'x-perm-shopping-create': String(context.permissions.create),
+        'x-perm-shopping-edit': String(context.permissions.edit),
+        'x-perm-shopping-delete': String(context.permissions.delete),
+        'x-perm-shopping-mark-done': String(context.permissions.markDone),
+        'x-perm-shopping-view-progress': String(context.permissions.viewProgress),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') {
+      throw new ApiRequestError('Request timeout', 0, 'TIMEOUT');
+    }
+    throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 
   if (!response.ok) {
     throw await parseApiError(response);
@@ -502,10 +528,10 @@ const lookupBarcodeOpenFoodFacts = async (barcode: string, locale?: string): Pro
 
   const suggestions: SmartSuggestion[] = [
     ...(category
-      ? [{ field: 'category', value: category, confidence: 'medium' as const, source: 'open_food_facts' as const }]
+      ? [{ field: 'category' as const, value: category, confidence: 'medium' as const, source: 'open_food_facts' as const }]
       : []),
     ...(Number.isFinite(parsedQuantity) && parsedQuantity > 0
-      ? [{ field: 'quantity', value: parsedQuantity, confidence: 'low' as const, source: 'open_food_facts' as const }]
+      ? [{ field: 'quantity' as const, value: parsedQuantity, confidence: 'low' as const, source: 'open_food_facts' as const }]
       : []),
   ];
 
@@ -575,6 +601,19 @@ export const enrichBarcodeMapping = async (payload: {
     method: 'POST',
     body,
   });
+};
+
+export const lookupSupermarketPrice = async (
+  barcode: string,
+): Promise<SupermarketPriceLookupResponse | null> => {
+  try {
+    return await request<SupermarketPriceLookupResponse>('/api/store/prices/by-barcode', {
+      method: 'POST',
+      body: { barcode } satisfies SupermarketPriceLookupRequest,
+    });
+  } catch {
+    return null;
+  }
 };
 
 export type InventoryLiveEvent =

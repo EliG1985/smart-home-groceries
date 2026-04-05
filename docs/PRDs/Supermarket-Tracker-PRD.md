@@ -1,37 +1,43 @@
 # Supermarket Tracker — PRD
 
+Date: 2026-03-27
+Owner: Mobile + Backend
+Status: In Progress — Core map and nearby flow implemented; advanced tracker features planned
+
+Legend: Implemented = live in current codebase, Planned = scoped and not yet shipped
+
 ## 1. Overview
 A feature-rich module for real-time geolocation, supermarket search, and user-centric shopping assistance.
 
 ## 2. UI Improvements
-✅ Map Integration: Map screen implemented using react-native-maps (MapView) and expo-location. Shows user location, radius overlay, and supermarket markers. UI is user-friendly and ready for further enhancements.
-✅ Radius Slider: Adjustable slider (implemented)
-✅ Location Accuracy Indicator: Display accuracy badge/text (implemented)
-✅ Refresh Button: Manual refresh for location/search results (implemented)
-✅ Loading/Error States: Spinner for loading, clear error messages (implemented)
-✅ Nearby Results List: Scrollable list with distance, address, sorting (implemented)
-✅ Search History: Planned (not yet implemented)
-✅ Permission Handling: Modal/banner for denied location permission (implemented)
+- Implemented: Map integration using react-native-maps (MapView) and expo-location, including user location, radius overlay, and supermarket markers.
+- Implemented: Adjustable radius slider.
+- Implemented: Location accuracy indicator.
+- Implemented: Manual refresh for location/search results.
+- Implemented: Loading and error states.
+- Implemented: Nearby results list with distance, address, and sorting.
+- Planned: Search history.
+- Implemented: Permission handling for denied location access.
 
 ## 3. Additional Features
-⚠️ Geofencing: Planned (not yet implemented)
-⚠️ Search History: Planned (not yet implemented)
-⚠️ Store Details Modal: Planned (not yet implemented)
-⚠️ Directions: Planned (not yet implemented)
-⚠️ Favorite Stores: Planned (not yet implemented)
-⚠️ Deals & Coupons: Planned (not yet implemented)
-⚠️ Push Notifications: Planned (not yet implemented)
-⚠️ Multi-POI Search: Planned (not yet implemented)
-⚠️ Accessibility Features: Planned (not yet implemented)
-⚠️ Gamification: Planned (not yet implemented)
-⚠️ Custom Map Styles: Planned (not yet implemented)
+- Planned: Geofencing.
+- Planned: Search history.
+- Planned: Store details modal.
+- Planned: Directions.
+- Planned: Favorite stores.
+- Planned: Deals and coupons.
+- Planned: Push notifications.
+- Planned: Multi-POI search.
+- Planned: Accessibility enhancements.
+- Planned: Gamification.
+- Planned: Custom map styles.
 
 ## 4. Implementation Notes
-✅ Use Expo Location/browser geolocation for real-time tracking (implemented)
-✅ Integrate MapView/Google Maps for visualization (implemented)
-✅ Backend API for supermarket search (implemented)
-✅ Validate radius input (0–10,000 km) (implemented)
-✅ Handle permission and error states gracefully (implemented)
+- Implemented: Expo Location/browser geolocation for real-time tracking.
+- Implemented: MapView visualization.
+- Implemented: Backend API usage for supermarket search.
+- Implemented: Radius input validation (0–10,000 km).
+- Implemented: Permission and error-state handling.
 
 ## 5. Future Enhancements
 - Expand POI types and search filters.

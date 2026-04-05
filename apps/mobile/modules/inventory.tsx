@@ -9,6 +9,7 @@ import {
 	StyleSheet,
 	Text,
 	TextInput,
+	useWindowDimensions,
 	View,
 } from 'react-native';
 import type { ShoppingListItem } from '../../../shared/types';
@@ -85,6 +86,8 @@ const getExpiryTone = (status: 'expired' | 'warning' | 'ok') => {
 
 export default function InventoryScreen() {
 	const { t, i18n } = useTranslation();
+	const { width } = useWindowDimensions();
+	const compactActions = width < 420;
 	const [items, setItems] = React.useState<ShoppingListItem[]>([]);
 	const [loading, setLoading] = React.useState(true);
 	const [refreshing, setRefreshing] = React.useState(false);
@@ -151,6 +154,21 @@ export default function InventoryScreen() {
 		await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(nextItems));
 	}, []);
 
+	const hydrateFromCache = React.useCallback(async (): Promise<boolean> => {
+		const cached = await AsyncStorage.getItem(CACHE_KEY);
+		if (!cached) {
+			return false;
+		}
+
+		try {
+			const parsed = JSON.parse(cached) as ShoppingListItem[];
+			setItems(parsed);
+			return true;
+		} catch {
+			return false;
+		}
+	}, []);
+
 	const loadInventory = React.useCallback(async (options?: { silent?: boolean }) => {
 		const silent = Boolean(options?.silent);
 		try {
@@ -158,30 +176,32 @@ export default function InventoryScreen() {
 			setItems(fetched);
 			await persistCache(fetched);
 		} catch (error) {
-			const cached = await AsyncStorage.getItem(CACHE_KEY);
-			if (cached) {
-				try {
-					const parsed = JSON.parse(cached) as ShoppingListItem[];
-					setItems(parsed);
-					if (!silent) {
-						Alert.alert(t('inventory.offlineTitle'), t('inventory.offlineBody'));
-					}
-					return;
-				} catch {
-					// Ignore cache parse errors and continue with request error.
-				}
+			const hydrated = await hydrateFromCache();
+			if (hydrated) {
+				return;
 			}
 
 			if (!silent) {
 				Alert.alert(t('inventory.loadFailedTitle'), getActionErrorMessage(error));
 			}
 		}
-	}, [getActionErrorMessage, persistCache, t]);
+	}, [getActionErrorMessage, hydrateFromCache, persistCache, t]);
 
 	React.useEffect(() => {
+		let isMounted = true;
 		refreshWriteAccess().catch(() => undefined);
-		loadInventory().finally(() => setLoading(false));
-	}, [loadInventory, refreshWriteAccess]);
+		hydrateFromCache()
+			.finally(() => {
+				if (isMounted) {
+					setLoading(false);
+				}
+				loadInventory({ silent: true }).catch(() => undefined);
+			});
+
+		return () => {
+			isMounted = false;
+		};
+	}, [hydrateFromCache, loadInventory, refreshWriteAccess]);
 
 	const handleLiveEvent = React.useCallback((event: InventoryLiveEvent) => {
 		if (event.type === 'reload') {
@@ -469,34 +489,39 @@ export default function InventoryScreen() {
 												textAlign={i18n.language === 'he' ? 'right' : 'left'}
 											/>
 										</View>
-										<View style={styles.rowGap}>
-											<AppButton title={t('inventory.saveEdit')} onPress={onSaveEdit} disabled={!canWrite} style={styles.actionButton} />
+										<View style={[styles.rowGap, compactActions && styles.actionColumn]}>
+											<AppButton
+												title={t('inventory.saveEdit')}
+												onPress={onSaveEdit}
+												disabled={!canWrite}
+												style={[styles.actionButton, compactActions && styles.actionButtonCompact]}
+											/>
 											<AppButton
 												title={t('inventory.cancelEdit')}
 												onPress={closeEdit}
-												style={[styles.actionButton, styles.cancelButton]}
+												style={[styles.actionButton, compactActions && styles.actionButtonCompact, styles.cancelButton]}
 											/>
 										</View>
 									</View>
 								) : (
-									<View style={styles.rowGap}>
+									<View style={[styles.rowGap, compactActions && styles.actionColumn]}>
 										<AppButton
 											title={t('inventory.moveToList')}
 											onPress={() => onMoveBackToList(item)}
 											disabled={!canWrite}
-											style={styles.actionButton}
+											style={[styles.actionButton, compactActions && styles.actionButtonCompact]}
 										/>
 										<AppButton
 											title={t('inventory.edit')}
 											onPress={() => openEdit(item)}
 											disabled={!canWrite}
-											style={[styles.actionButton, styles.editButton]}
+											style={[styles.actionButton, compactActions && styles.actionButtonCompact, styles.editButton]}
 										/>
 										<AppButton
 											title={t('inventory.delete')}
 											onPress={() => onDelete(item)}
 											disabled={!canWrite}
-											style={[styles.actionButton, styles.deleteButton]}
+											style={[styles.actionButton, compactActions && styles.actionButtonCompact, styles.deleteButton]}
 										/>
 									</View>
 								)}
@@ -568,7 +593,7 @@ const styles = StyleSheet.create({
 		color: colors.text,
 		fontSize: fontSizes.medium,
 		fontWeight: '600',
-		marginRight: spacing.sm,
+		marginEnd: spacing.sm,
 	},
 	itemPrice: {
 		color: colors.textSecondary,
@@ -614,12 +639,22 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		gap: spacing.sm,
 	},
+	actionColumn: {
+		flexDirection: 'column',
+		alignItems: 'stretch',
+		gap: spacing.xs,
+	},
 	halfInput: {
 		flex: 1,
 	},
 	actionButton: {
 		flex: 1,
-		minWidth: 90,
+		minWidth: 0,
+		marginVertical: 0,
+		paddingHorizontal: spacing.sm,
+	},
+	actionButtonCompact: {
+		width: '100%',
 	},
 	editButton: {
 		backgroundColor: colors.secondary,

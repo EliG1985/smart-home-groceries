@@ -1,5 +1,9 @@
 # Barcode & Smart Assistance
 
+Date: 2026-03-30
+Owner: Mobile + Backend
+Status: In Progress — Core lookup and price assist implemented; supermarket pricing now DB-backed (J2 complete); multi-scan and QA pending
+
 ## Product Goal
 Deliver a fast, reliable barcode-driven add flow that helps users identify products, prefill inventory details, and receive smart category and price suggestions with minimal typing.
 
@@ -10,7 +14,7 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 - Crash-free rate above 99.5% in barcode flow screens.
 
 ## Scope
-- In scope: barcode scanning, product lookup, suggestion engine, inventory prefilling, confidence display, fallback manual flow, caching, analytics, and permissions.
+- In scope: barcode scanning, product lookup, suggestion engine, inventory prefilling, confidence display, fallback manual flow, supermarket best-price lookup, caching, analytics, and permissions.
 - Out of scope: full OCR receipts, advanced nutrition scoring, and dynamic promotions engine.
 
 ## User Stories
@@ -22,10 +26,12 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 
 ## Full Feature List
 
+Legend: Implemented = live in current codebase, Planned = scoped but not yet shipped
+
 ### 1. Barcode Scan Experience
 - Live camera scanner with centered guide frame.
 - Torch toggle for low-light conditions.
-- Haptic feedback on successful scan.
+- Haptic feedback on successful scan (planned).
 - Duplicate-scan debounce in the same session.
 - Manual barcode input fallback.
 - Permission states: granted, denied, blocked with recovery prompt.
@@ -42,6 +48,7 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 - Suggested category based on product taxonomy and historical user selections.
 - Suggested typical price range by category, store, and user history.
 - Suggested quantity default from prior adds.
+- Best-price quote from clean-room supermarket pricing endpoint when barcode has market data.
 - Confidence score per suggested field.
 - Explainability tags like source and rule used.
 - Continuous learning from accepted or edited suggestions.
@@ -60,12 +67,14 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 - Store local mapping for future scans by same user/family.
 
 ### 6. Multi-Scan Session Mode
+- Status: Planned
 - Keep scanner open after save for rapid batch capture.
 - Bottom queue of scanned items pending confirmation.
 - Skip, edit, and save-all actions.
 - Session summary with success and failed lookups.
 
 ### 7. Offline and Resilience
+- Status: Partial (write queue implemented for inventory writes; barcode cache/queue enhancements pending)
 - If network fails, allow manual add path immediately.
 - Queue pending lookup enrichment when online resumes.
 - Cache recent barcode lookups on device with TTL.
@@ -100,7 +109,8 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 ### Backend Contracts
 - `POST /api/barcode/lookup` with barcode and locale.
 - `POST /api/barcode/enrich` to save user-confirmed mapping.
-- `GET /api/barcode/cache/:barcode` optional fast path.
+- `POST /api/store/prices/by-barcode` for best-price quotes by barcode.
+- `GET /api/store/chains` for available chains/stores metadata.
 - Existing inventory write routes remain the source of truth for final item creation.
 
 ### Suggested Request Shape
@@ -114,6 +124,13 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 - suggestions: category and price suggestions with confidence
 - source: open_food_facts or local_cache or learned_mapping
 - traceId: string
+
+### Supermarket Price Response Shape
+- found: boolean
+- source: clean_room_snapshot
+- bestPrice: optional quote (chain, store, city, price, promoText)
+- results: ranked quote list by ascending price
+- chains: available chain/store metadata
 
 ## Smart Suggestion Rules
 - Category suggestion priority:
@@ -162,17 +179,23 @@ Deliver a fast, reliable barcode-driven add flow that helps users identify produ
 - [x] Add accept, edit, and save actions.
 - [x] Add unknown barcode fallback flow.
 
-### Phase E: Multi-Scan and Offline
+### Phase E: Supermarket Price Assist
+- [x] Implement backend clean-room supermarket pricing contracts and routes.
+- [x] Add mobile non-blocking lookup call after barcode lookup completes.
+- [x] Show best-price card (chain + price + promo) in add form.
+- [x] Prefill item price from best quote when price is still default.
+
+### Phase F: Multi-Scan and Offline
 - [ ] Implement session queue for rapid scan mode.
 - [ ] Add offline fallback and retry queue.
 - [ ] Persist recent barcode cache in AsyncStorage.
 
-### Phase F: Permissions and Localization
+### Phase G: Permissions and Localization
 - [x] Apply role-based write guard behavior.
 - [x] Add EN and HE keys for all new states.
-- [ ] Verify RTL rendering for scanner and add sheet.
+	- [x] Verify RTL rendering for scanner and add sheet — `marginEnd` fixes applied; startup RTL sync added; restart prompt wired to language switch.
 
-### Phase G: Telemetry and QA
+### Phase H: Telemetry and QA
 - [x] Add analytics events and performance timers.
 - [ ] Add backend and mobile test coverage for happy and failure paths.
 - [ ] Run end-to-end test on physical Android device.

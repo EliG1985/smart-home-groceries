@@ -11,7 +11,30 @@
       "android",
       "web"
     ],
+    "ios": {
+      "bundleIdentifier": "com.anonymous.smarthomegroceriesmobile",
+      "associatedDomains": [
+        "applinks:links.smarthomegroceries.app"
+      ]
+    },
     "android": {
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "links.smarthomegroceries.app",
+              "pathPrefix": "/invite"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "package": "com.anonymous.smarthomegroceriesmobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

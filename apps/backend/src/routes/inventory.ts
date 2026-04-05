@@ -10,6 +10,7 @@ import type {
 	InventoryItemDto,
 	InventoryListResponse,
 	InventoryStatus,
+	ShoppingPermissions,
 	InventoryStatusPatchRequest,
 	InventoryUpdateRequest,
 	SubscriptionTier,
@@ -20,7 +21,7 @@ import { supabase } from '../utils/supabaseClient';
 const router = Router();
 
 const INVENTORY_STATUSES: InventoryStatus[] = ['In_List', 'At_Home'];
-const USER_ROLES: UserRole[] = ['owner', 'editor', 'viewer'];
+const USER_ROLES: UserRole[] = ['admin', 'editor', 'viewer'];
 const SUBSCRIPTION_TIERS: SubscriptionTier[] = ['Free', 'Premium'];
 const UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -63,15 +64,54 @@ const normalizeNumber = (value: unknown): number | undefined => {
 	return undefined;
 };
 
+const normalizeBooleanHeader = (value: unknown): boolean | undefined => {
+	if (typeof value === 'boolean') {
+		return value;
+	}
+
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		if (normalized === 'true') {
+			return true;
+		}
+		if (normalized === 'false') {
+			return false;
+		}
+	}
+
+	return undefined;
+};
+
+const defaultPermissionsForRole = (role: UserRole): ShoppingPermissions => {
+	if (role === 'viewer') {
+		return {
+			create: false,
+			edit: false,
+			delete: false,
+			markDone: true,
+			viewProgress: true,
+		};
+	}
+
+	return {
+		create: true,
+		edit: true,
+		delete: true,
+		markDone: true,
+		viewProgress: true,
+	};
+};
+
 const isIsoDate = (value: string): boolean => !Number.isNaN(Date.parse(value));
 
 const getFamilyContext = (req: Request<any, any, any, any>) => {
 	const familyId = normalizeString(req.header('x-family-id')) || 'demo-family';
 
-	const rawRole = normalizeString(req.header('x-user-role')) || 'owner';
+	const rawRoleInput = normalizeString(req.header('x-user-role')) || 'admin';
+	const rawRole = rawRoleInput === 'owner' ? 'admin' : rawRoleInput;
 	const role: UserRole = USER_ROLES.includes(rawRole as UserRole)
 		? (rawRole as UserRole)
-		: 'owner';
+		: 'admin';
 
 	const rawTier = normalizeString(req.header('x-subscription-tier')) || 'Free';
 	const subscriptionTier: SubscriptionTier = SUBSCRIPTION_TIERS.includes(rawTier as SubscriptionTier)
@@ -81,23 +121,43 @@ const getFamilyContext = (req: Request<any, any, any, any>) => {
 	const membersCountHeader = normalizeNumber(req.header('x-family-members-count'));
 	const familyMembersCount = membersCountHeader && membersCountHeader > 0 ? membersCountHeader : 1;
 
+	const defaults = defaultPermissionsForRole(role);
+	const permissions: ShoppingPermissions = {
+		create: normalizeBooleanHeader(req.header('x-perm-shopping-create')) ?? defaults.create,
+		edit: normalizeBooleanHeader(req.header('x-perm-shopping-edit')) ?? defaults.edit,
+		delete: normalizeBooleanHeader(req.header('x-perm-shopping-delete')) ?? defaults.delete,
+		markDone: normalizeBooleanHeader(req.header('x-perm-shopping-mark-done')) ?? defaults.markDone,
+		viewProgress:
+			normalizeBooleanHeader(req.header('x-perm-shopping-view-progress')) ?? defaults.viewProgress,
+	};
+
 	const userId = normalizeString(req.header('x-user-id')) || 'demo-user';
 
-	return { familyId, role, subscriptionTier, familyMembersCount, userId };
+	return { familyId, role, subscriptionTier, familyMembersCount, userId, permissions };
 };
 
 const canWriteForFamily = (
 	req: Request<any, any, any, any>,
 	res: Response<ApiErrorResponse>,
+	action: 'create' | 'edit' | 'delete' | 'markDone',
 ): boolean => {
-	const { role, subscriptionTier, familyMembersCount } = getFamilyContext(req);
+	const { permissions, subscriptionTier, familyMembersCount } = getFamilyContext(req);
 
-	if (role === 'viewer') {
+	const allowedByPermission =
+		action === 'create'
+			? permissions.create
+			: action === 'edit'
+				? permissions.edit
+				: action === 'delete'
+					? permissions.delete
+					: permissions.markDone;
+
+	if (!allowedByPermission) {
 		errorResponse(
 			res,
 			403,
-			'FORBIDDEN_ROLE',
-			'Viewer role is not allowed to modify inventory or shopping list data.',
+			'FORBIDDEN_PERMISSION',
+			'This member does not have permission for this shopping list action.',
 		);
 		return false;
 	}
@@ -220,7 +280,7 @@ router.post(
 		req: Request<any, InventoryItemDto | ApiErrorResponse, InventoryCreateRequest, any>,
 		res: Response,
 	) => {
-		if (!canWriteForFamily(req, res)) {
+		if (!canWriteForFamily(req, res, 'create')) {
 			return;
 		}
 
@@ -263,7 +323,7 @@ router.post(
 router.patch(
 	'/:id',
 	async (req: Request<{ id: string }, InventoryItemDto | ApiErrorResponse, InventoryUpdateRequest>, res: Response) => {
-		if (!canWriteForFamily(req, res)) {
+		if (!canWriteForFamily(req, res, 'edit')) {
 			return;
 		}
 
@@ -327,10 +387,6 @@ router.patch(
 		req: Request<{ id: string }, InventoryItemDto | ApiErrorResponse, InventoryStatusPatchRequest>,
 		res: Response,
 	) => {
-		if (!canWriteForFamily(req, res)) {
-			return;
-		}
-
 		const statusRaw = normalizeString(req.body?.status);
 		const status = INVENTORY_STATUSES.includes(statusRaw as InventoryStatus)
 			? (statusRaw as InventoryStatus)
@@ -338,6 +394,10 @@ router.patch(
 
 		if (!status) {
 			errorResponse(res, 400, 'VALIDATION_ERROR', 'status must be one of In_List | At_Home');
+			return;
+		}
+
+		if (!canWriteForFamily(req, res, status === 'At_Home' ? 'markDone' : 'edit')) {
 			return;
 		}
 
@@ -368,7 +428,7 @@ router.patch(
 router.delete(
 	'/:id',
 	async (req: Request<{ id: string }, { deletedId: string } | ApiErrorResponse>, res: Response) => {
-		if (!canWriteForFamily(req, res)) {
+		if (!canWriteForFamily(req, res, 'delete')) {
 			return;
 		}
 
@@ -400,7 +460,7 @@ router.post(
 		req: Request<any, InventoryBatchBuyResponse | ApiErrorResponse, InventoryBatchBuyRequest, any>,
 		res: Response,
 	) => {
-		if (!canWriteForFamily(req, res)) {
+		if (!canWriteForFamily(req, res, 'markDone')) {
 			return;
 		}
 
@@ -440,7 +500,7 @@ router.post(
 		req: Request<any, InventoryBatchDeleteResponse | ApiErrorResponse, InventoryBatchDeleteRequest, any>,
 		res: Response,
 	) => {
-		if (!canWriteForFamily(req, res)) {
+		if (!canWriteForFamily(req, res, 'delete')) {
 			return;
 		}
 

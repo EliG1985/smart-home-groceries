@@ -1,12 +1,25 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const supabaseClient_1 = require("../utils/supabaseClient");
 const router = (0, express_1.Router)();
 const INVENTORY_STATUSES = ['In_List', 'At_Home'];
-const USER_ROLES = ['owner', 'editor', 'viewer'];
+const USER_ROLES = ['admin', 'editor', 'viewer'];
 const SUBSCRIPTION_TIERS = ['Free', 'Premium'];
-// In-memory store for initial contract implementation.
-const inventoryStore = [];
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const mapDbRow = (row) => ({
+    id: String(row.id),
+    familyId: String(row.family_id),
+    productName: String(row.product_name),
+    category: String(row.category),
+    expiryDate: String(row.expiry_date ?? ''),
+    status: row.status === 'At_Home' ? 'At_Home' : 'In_List',
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    addedBy: String(row.added_by),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+});
 const errorResponse = (res, status, code, message, details) => res.status(status).json({ error: { code, message, ...(details ? { details } : {}) } });
 const normalizeString = (value) => typeof value === 'string' ? value.trim() : undefined;
 const normalizeNumber = (value) => {
@@ -19,26 +32,75 @@ const normalizeNumber = (value) => {
     }
     return undefined;
 };
+const normalizeBooleanHeader = (value) => {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'true') {
+            return true;
+        }
+        if (normalized === 'false') {
+            return false;
+        }
+    }
+    return undefined;
+};
+const defaultPermissionsForRole = (role) => {
+    if (role === 'viewer') {
+        return {
+            create: false,
+            edit: false,
+            delete: false,
+            markDone: true,
+            viewProgress: true,
+        };
+    }
+    return {
+        create: true,
+        edit: true,
+        delete: true,
+        markDone: true,
+        viewProgress: true,
+    };
+};
 const isIsoDate = (value) => !Number.isNaN(Date.parse(value));
 const getFamilyContext = (req) => {
     const familyId = normalizeString(req.header('x-family-id')) || 'demo-family';
-    const rawRole = normalizeString(req.header('x-user-role')) || 'owner';
+    const rawRoleInput = normalizeString(req.header('x-user-role')) || 'admin';
+    const rawRole = rawRoleInput === 'owner' ? 'admin' : rawRoleInput;
     const role = USER_ROLES.includes(rawRole)
         ? rawRole
-        : 'owner';
+        : 'admin';
     const rawTier = normalizeString(req.header('x-subscription-tier')) || 'Free';
     const subscriptionTier = SUBSCRIPTION_TIERS.includes(rawTier)
         ? rawTier
         : 'Free';
     const membersCountHeader = normalizeNumber(req.header('x-family-members-count'));
     const familyMembersCount = membersCountHeader && membersCountHeader > 0 ? membersCountHeader : 1;
+    const defaults = defaultPermissionsForRole(role);
+    const permissions = {
+        create: normalizeBooleanHeader(req.header('x-perm-shopping-create')) ?? defaults.create,
+        edit: normalizeBooleanHeader(req.header('x-perm-shopping-edit')) ?? defaults.edit,
+        delete: normalizeBooleanHeader(req.header('x-perm-shopping-delete')) ?? defaults.delete,
+        markDone: normalizeBooleanHeader(req.header('x-perm-shopping-mark-done')) ?? defaults.markDone,
+        viewProgress: normalizeBooleanHeader(req.header('x-perm-shopping-view-progress')) ?? defaults.viewProgress,
+    };
     const userId = normalizeString(req.header('x-user-id')) || 'demo-user';
-    return { familyId, role, subscriptionTier, familyMembersCount, userId };
+    return { familyId, role, subscriptionTier, familyMembersCount, userId, permissions };
 };
-const canWriteForFamily = (req, res) => {
-    const { role, subscriptionTier, familyMembersCount } = getFamilyContext(req);
-    if (role === 'viewer') {
-        errorResponse(res, 403, 'FORBIDDEN_ROLE', 'Viewer role is not allowed to modify inventory or shopping list data.');
+const canWriteForFamily = (req, res, action) => {
+    const { permissions, subscriptionTier, familyMembersCount } = getFamilyContext(req);
+    const allowedByPermission = action === 'create'
+        ? permissions.create
+        : action === 'edit'
+            ? permissions.edit
+            : action === 'delete'
+                ? permissions.delete
+                : permissions.markDone;
+    if (!allowedByPermission) {
+        errorResponse(res, 403, 'FORBIDDEN_PERMISSION', 'This member does not have permission for this shopping list action.');
         return false;
     }
     if (familyMembersCount > 1 && subscriptionTier !== 'Premium') {
@@ -50,6 +112,7 @@ const canWriteForFamily = (req, res) => {
 const mapCreatePayload = (req) => {
     const { familyId, userId } = getFamilyContext(req);
     const body = req.body || {};
+    const id = normalizeString(body.id);
     const productName = normalizeString(body.product_name ?? body.productName);
     const category = normalizeString(body.category);
     const expiryDate = normalizeString(body.expiry_date ?? body.expiryDate);
@@ -64,13 +127,16 @@ const mapCreatePayload = (req) => {
     if (!productName) {
         errors.push('product_name is required');
     }
+    if (id && !UUID_PATTERN.test(id)) {
+        errors.push('id must be a valid uuid');
+    }
     if (!category) {
         errors.push('category is required');
     }
-    if (!expiryDate) {
-        errors.push('expiry_date is required');
+    if (status === 'At_Home' && !expiryDate) {
+        errors.push('expiry_date is required for At_Home items');
     }
-    else if (!isIsoDate(expiryDate)) {
+    else if (expiryDate && !isIsoDate(expiryDate)) {
         errors.push('expiry_date must be a valid date');
     }
     if (!status) {
@@ -90,6 +156,7 @@ const mapCreatePayload = (req) => {
     }
     return {
         payload: {
+            ...(id ? { id } : {}),
             familyId,
             productName: productName || '',
             category: category || '',
@@ -102,22 +169,32 @@ const mapCreatePayload = (req) => {
         errors,
     };
 };
-router.get('/', (req, res) => {
-    const { familyId } = getFamilyContext(req);
-    const requestedStatus = normalizeString(req.query.status);
-    const items = inventoryStore
-        .filter((item) => item.familyId === familyId)
-        .filter((item) => {
-        if (!requestedStatus) {
-            return true;
+router.get('/', async (req, res) => {
+    try {
+        const { familyId } = getFamilyContext(req);
+        const requestedStatus = normalizeString(req.query.status);
+        let query = supabaseClient_1.supabase
+            .from('inventory')
+            .select('*')
+            .eq('family_id', familyId)
+            .order('updated_at', { ascending: false });
+        if (requestedStatus && INVENTORY_STATUSES.includes(requestedStatus)) {
+            query = query.eq('status', requestedStatus);
         }
-        return item.status === requestedStatus;
-    })
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    return res.json({ items, total: items.length });
+        const { data, error } = await query;
+        if (error) {
+            return errorResponse(res, 500, 'DB_ERROR', error.message);
+        }
+        const items = (data ?? []).map(mapDbRow);
+        return res.json({ items, total: items.length });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        return errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
-router.post('/', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
+router.post('/', async (req, res) => {
+    if (!canWriteForFamily(req, res, 'create')) {
         return;
     }
     const { payload, errors } = mapCreatePayload(req);
@@ -125,26 +202,38 @@ router.post('/', (req, res) => {
         errorResponse(res, 400, 'VALIDATION_ERROR', 'Invalid inventory create payload.', errors);
         return;
     }
-    const now = new Date().toISOString();
-    const item = {
-        id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        createdAt: now,
-        updatedAt: now,
-        ...payload,
-    };
-    inventoryStore.push(item);
-    res.status(201).json(item);
+    try {
+        const { data, error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .insert({
+            ...(payload.id ? { id: payload.id } : {}),
+            family_id: payload.familyId,
+            product_name: payload.productName,
+            category: payload.category,
+            expiry_date: payload.expiryDate,
+            status: payload.status,
+            price: payload.price,
+            quantity: payload.quantity,
+            added_by: payload.addedBy,
+        })
+            .select()
+            .single();
+        if (error) {
+            errorResponse(res, 500, 'DB_ERROR', error.message);
+            return;
+        }
+        res.status(201).json(mapDbRow(data));
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
-router.patch('/:id', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
+router.patch('/:id', async (req, res) => {
+    if (!canWriteForFamily(req, res, 'edit')) {
         return;
     }
     const { familyId } = getFamilyContext(req);
-    const item = inventoryStore.find((entry) => entry.id === req.params.id && entry.familyId === familyId);
-    if (!item) {
-        errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found.');
-        return;
-    }
     const body = req.body || {};
     const nextProductName = normalizeString(body.product_name ?? body.productName);
     const nextCategory = normalizeString(body.category);
@@ -165,24 +254,37 @@ router.patch('/:id', (req, res) => {
         errorResponse(res, 400, 'VALIDATION_ERROR', 'Invalid inventory update payload.', errors);
         return;
     }
-    item.productName = nextProductName ?? item.productName;
-    item.category = nextCategory ?? item.category;
-    item.expiryDate = nextExpiryDate ?? item.expiryDate;
-    item.price = nextPrice ?? item.price;
-    item.quantity = nextQuantity ?? item.quantity;
-    item.updatedAt = new Date().toISOString();
-    res.json(item);
+    try {
+        const updates = {};
+        if (nextProductName)
+            updates.product_name = nextProductName;
+        if (nextCategory)
+            updates.category = nextCategory;
+        if (nextExpiryDate)
+            updates.expiry_date = nextExpiryDate;
+        if (nextPrice !== undefined)
+            updates.price = nextPrice;
+        if (nextQuantity !== undefined)
+            updates.quantity = nextQuantity;
+        const { data, error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .update(updates)
+            .eq('id', req.params.id)
+            .eq('family_id', familyId)
+            .select()
+            .single();
+        if (error) {
+            errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found or update failed.');
+            return;
+        }
+        res.json(mapDbRow(data));
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
-router.patch('/:id/status', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
-        return;
-    }
-    const { familyId } = getFamilyContext(req);
-    const item = inventoryStore.find((entry) => entry.id === req.params.id && entry.familyId === familyId);
-    if (!item) {
-        errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found.');
-        return;
-    }
+router.patch('/:id/status', async (req, res) => {
     const statusRaw = normalizeString(req.body?.status);
     const status = INVENTORY_STATUSES.includes(statusRaw)
         ? statusRaw
@@ -191,25 +293,53 @@ router.patch('/:id/status', (req, res) => {
         errorResponse(res, 400, 'VALIDATION_ERROR', 'status must be one of In_List | At_Home');
         return;
     }
-    item.status = status;
-    item.updatedAt = new Date().toISOString();
-    res.json(item);
-});
-router.delete('/:id', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
+    if (!canWriteForFamily(req, res, status === 'At_Home' ? 'markDone' : 'edit')) {
         return;
     }
     const { familyId } = getFamilyContext(req);
-    const index = inventoryStore.findIndex((entry) => entry.id === req.params.id && entry.familyId === familyId);
-    if (index === -1) {
-        errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found.');
+    try {
+        const { data, error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .update({ status })
+            .eq('id', req.params.id)
+            .eq('family_id', familyId)
+            .select()
+            .single();
+        if (error) {
+            errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found or update failed.');
+            return;
+        }
+        res.json(mapDbRow(data));
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
+});
+router.delete('/:id', async (req, res) => {
+    if (!canWriteForFamily(req, res, 'delete')) {
         return;
     }
-    inventoryStore.splice(index, 1);
-    res.json({ deletedId: req.params.id });
+    const { familyId } = getFamilyContext(req);
+    try {
+        const { error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .delete()
+            .eq('id', req.params.id)
+            .eq('family_id', familyId);
+        if (error) {
+            errorResponse(res, 404, 'NOT_FOUND', 'Inventory item was not found or delete failed.');
+            return;
+        }
+        res.json({ deletedId: req.params.id });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
-router.post('/batch/buy', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
+router.post('/batch/buy', async (req, res) => {
+    if (!canWriteForFamily(req, res, 'markDone')) {
         return;
     }
     const itemIds = req.body?.itemIds;
@@ -218,20 +348,27 @@ router.post('/batch/buy', (req, res) => {
         return;
     }
     const { familyId } = getFamilyContext(req);
-    const idSet = new Set(itemIds);
-    const updatedIds = [];
-    for (const item of inventoryStore) {
-        if (item.familyId !== familyId || !idSet.has(item.id)) {
-            continue;
+    try {
+        const { data, error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .update({ status: 'At_Home' })
+            .in('id', itemIds)
+            .eq('family_id', familyId)
+            .select('id');
+        if (error) {
+            errorResponse(res, 500, 'DB_ERROR', error.message);
+            return;
         }
-        item.status = 'At_Home';
-        item.updatedAt = new Date().toISOString();
-        updatedIds.push(item.id);
+        const updatedIds = (data ?? []).map((row) => String(row.id));
+        res.json({ updatedCount: updatedIds.length, updatedIds });
     }
-    res.json({ updatedCount: updatedIds.length, updatedIds });
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
-router.post('/batch/delete', (req, res) => {
-    if (!canWriteForFamily(req, res)) {
+router.post('/batch/delete', async (req, res) => {
+    if (!canWriteForFamily(req, res, 'delete')) {
         return;
     }
     const itemIds = req.body?.itemIds;
@@ -240,16 +377,23 @@ router.post('/batch/delete', (req, res) => {
         return;
     }
     const { familyId } = getFamilyContext(req);
-    const idSet = new Set(itemIds);
-    const deletedIds = [];
-    for (let index = inventoryStore.length - 1; index >= 0; index -= 1) {
-        const item = inventoryStore[index];
-        if (item.familyId !== familyId || !idSet.has(item.id)) {
-            continue;
+    try {
+        const { data, error } = await supabaseClient_1.supabase
+            .from('inventory')
+            .delete()
+            .in('id', itemIds)
+            .eq('family_id', familyId)
+            .select('id');
+        if (error) {
+            errorResponse(res, 500, 'DB_ERROR', error.message);
+            return;
         }
-        deletedIds.push(item.id);
-        inventoryStore.splice(index, 1);
+        const deletedIds = (data ?? []).map((row) => String(row.id));
+        res.json({ deletedCount: deletedIds.length, deletedIds });
     }
-    res.json({ deletedCount: deletedIds.length, deletedIds });
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Unexpected server error.';
+        errorResponse(res, 500, 'INTERNAL_ERROR', message);
+    }
 });
 exports.default = router;

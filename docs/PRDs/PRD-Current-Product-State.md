@@ -3,6 +3,19 @@
 Date: 2026-03-05  
 Status: Current-state PRD derived from implementation in frontend, backend, and Supabase schema.
 
+## 0) Recent Implementation Updates (2026-03-27)
+✅ Clean-room supermarket pricing backend slice added:
+- `GET /api/store/chains`
+- `POST /api/store/prices/by-barcode`
+- Snapshot-backed source model (`clean_room_snapshot`) to keep API stable before ingestion phase.
+
+✅ Shopping List barcode add flow now includes market-price assist:
+- Barcode lookup still drives product/category suggestions.
+- Mobile now performs non-blocking supermarket price lookup after barcode lookup.
+- Add form displays best-price card (chain + price + optional promo).
+- Price field may be prefilled from best quote when still at default value.
+- EN/HE localization keys added for the best-price UI copy.
+
 ## 1) Product Vision
 SmartHome Groceries is a family-centric grocery and pantry management app focused on:
 ✅ Shared shopping list and home inventory workflows (implemented)

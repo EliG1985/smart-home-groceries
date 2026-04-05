@@ -20,6 +20,17 @@ type FieldErrors = {
   email?: string;
 };
 
+const PASSWORD_RESET_SCHEME = 'smarthomegroceries';
+const PASSWORD_RESET_PATH = 'reset-password';
+
+const createPasswordResetRedirectUrl = () => {
+  // Pass the scheme explicitly so Expo Linking does not rely on inferred build-time config.
+  const generated = ExpoLinking.createURL(PASSWORD_RESET_PATH, {
+    scheme: PASSWORD_RESET_SCHEME,
+  });
+  return generated || `${PASSWORD_RESET_SCHEME}://${PASSWORD_RESET_PATH}`;
+};
+
 export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) {
   const { t, i18n } = useTranslation();
   const [email, setEmail] = useState('');
@@ -51,7 +62,7 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
     setLoading(true);
 
     try {
-      const redirectTo = ExpoLinking.createURL('reset-password');
+      const redirectTo = createPasswordResetRedirectUrl();
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo,
       });

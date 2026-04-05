@@ -15,19 +15,19 @@ Authentication in SmartHome Groceries supports both local (browser/device) and S
 
 ---
 
-# Shopping List (shopping-list.md)
+# Shopping List (shopping-list-implementation-plan.md)
 
 ## Overview
 Real-time, shared shopping list for all family members.
 
 ## Integrations
 - Supabase Realtime (list sync)
-- Backend API: /api/inventory
+- Backend API: /api/inventory, /api/shopping-list
 
 ## Logic
 - CRUD operations for items
 - Batch actions (mark as bought, delete, etc.)
-- History suggestions, barcode scan, fast add/edit
+- Barcode-assisted add flow with smart suggestions and best-price quote card
 - List and pantry are synchronized in real-time
 
 ---
@@ -109,7 +109,7 @@ Map-based module for real-time geolocation and supermarket search.
 ## Integrations
 - Expo Location
 - react-native-maps (MapView)
-- Backend API: /api/reports/supermarket-insights
+- Backend API: /api/reports/supermarket-insights, /api/store/chains, /api/store/prices/by-barcode
 
 ## Logic
 - Map with user location, radius, and markers
@@ -161,12 +161,12 @@ Barcode scanning and AI-like suggestions for products.
 
 ## Integrations
 - Open Food Facts API
-- Backend API: /api/inventory
+- Backend API: /api/barcode/lookup, /api/barcode/enrich, /api/store/prices/by-barcode
 
 ## Logic
 - Barcode scanner for fast add
 - Product lookup and suggestions
-- AI category and price insights
+- Non-blocking supermarket best-price lookup shown inside add form
 
 ---
 
