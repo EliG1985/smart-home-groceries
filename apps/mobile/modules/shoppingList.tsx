@@ -35,6 +35,11 @@ import {
 	type InventoryLiveEvent,
 } from '../utils/inventoryApi';
 import { addNetInfoListener } from '../utils/netInfoSafe';
+import {
+	SHOPPING_CATEGORIES,
+	applyCategoryRulesToForm,
+	getShoppingCategoryDefinition,
+} from '../utils/shoppingCategories';
 import { getUserContext } from '../utils/userContext';
 import type { ShoppingPermissions } from '../utils/userContext';
 
@@ -49,6 +54,7 @@ type NewItemForm = {
 	expiryDate: string;
 	price: string;
 	quantity: string;
+	weight: string;
 };
 
 type CompletionEvent = {
@@ -89,6 +95,7 @@ const initialForm: NewItemForm = {
 	expiryDate: '',
 	price: '0',
 	quantity: '1',
+	weight: '',
 };
 
 const initialEditForm: NewItemForm = {
@@ -97,6 +104,7 @@ const initialEditForm: NewItemForm = {
 	expiryDate: '',
 	price: '',
 	quantity: '',
+	weight: '',
 };
 
 const isValidDate = (value: string): boolean => {
@@ -107,6 +115,19 @@ const isValidDate = (value: string): boolean => {
 };
 
 const isValidOptionalDate = (value: string): boolean => !value || isValidDate(value);
+
+const formatCategoryLabel = (
+	value: string,
+	t: (key: string, options?: Record<string, unknown>) => string,
+): string => {
+	const definition = getShoppingCategoryDefinition(value);
+	if (!definition) {
+		return value;
+	}
+
+	const translated = t(definition.labelKey);
+	return translated === definition.labelKey ? definition.defaultLabel : translated;
+};
 
 const groupByCategory = (items: ShoppingListItem[]): GroupedSection[] => {
 	const map = new Map<string, ShoppingListItem[]>();
@@ -178,6 +199,20 @@ export default function ShoppingListScreen() {
 	const [recentUpdates, setRecentUpdates] = React.useState<Record<string, RecentItemUpdate>>({});
 	const [writeRecovery, setWriteRecovery] = React.useState<WriteRecoveryState | null>(null);
 	const [currentUserId, setCurrentUserId] = React.useState('');
+	const selectedCategory = getShoppingCategoryDefinition(form.category) ?? getShoppingCategoryDefinition('other');
+	const selectedEditCategory = getShoppingCategoryDefinition(editForm.category) ?? getShoppingCategoryDefinition('other');
+	const shouldShowAddExpiry = selectedCategory?.expiryPolicy !== 'hidden';
+	const isAddExpiryRequired = selectedCategory?.expiryPolicy === 'required';
+	const shouldShowEditExpiry = selectedEditCategory?.expiryPolicy !== 'hidden';
+	const isEditExpiryRequired = selectedEditCategory?.expiryPolicy === 'required';
+	const addQuantityLabel = selectedCategory?.quantityMode === 'weight'
+		? t('shoppingList.form.weight')
+		: t('shoppingList.form.quantity');
+	const editQuantityLabel = selectedEditCategory?.quantityMode === 'weight'
+		? t('shoppingList.form.weight')
+		: t('shoppingList.form.quantity');
+	const isAddWeightCategory = selectedCategory?.quantityMode === 'weight';
+	const isEditWeightCategory = selectedEditCategory?.quantityMode === 'weight';
 	const scanTraceIdRef = React.useRef<string | null>(null);
 	const scanStartedAtRef = React.useRef<number | null>(null);
 	const lookupCompletedAtRef = React.useRef<number | null>(null);
@@ -517,6 +552,7 @@ export default function ShoppingListScreen() {
 			expiryDate: item.expiryDate,
 			price: String(item.price),
 			quantity: String(item.quantity),
+			weight: String(item.quantity),
 		});
 	};
 
@@ -529,6 +565,19 @@ export default function ShoppingListScreen() {
 	const updateForm = (field: keyof NewItemForm, value: string) => {
 		setForm((previous) => ({ ...previous, [field]: value }));
 	};
+
+	const selectAddCategory = React.useCallback((categoryId: string) => {
+		setForm((previous) => applyCategoryRulesToForm(previous, categoryId));
+	}, []);
+
+	const resetAddCategory = React.useCallback(() => {
+		setForm((previous) => ({ ...previous, category: '', expiryDate: '' }));
+		setLastSuggestions([]);
+		setLookupNotFound(false);
+		setMarketPriceQuote(null);
+		setPendingEnrichBarcode(null);
+		formAtLookupRef.current = null;
+	}, []);
 
 	const onToggleAddForm = React.useCallback(() => {
 		setShowAddForm((previous) => !previous);
@@ -568,12 +617,22 @@ export default function ShoppingListScreen() {
 		let resolvedForm = initialForm;
 
 		setForm((previous) => {
+			const resolvedCategory = previous.category || lookup.product?.category || '';
+			const resolvedCategoryDefinition = getShoppingCategoryDefinition(resolvedCategory);
+			const nextQuantity = suggestedQuantity !== undefined ? String(suggestedQuantity) : previous.quantity;
+			const nextWeight =
+				resolvedCategoryDefinition?.quantityMode === 'weight'
+					? suggestedQuantity !== undefined
+						? String(suggestedQuantity)
+						: previous.weight
+					: previous.weight;
 			resolvedForm = {
 				...previous,
 				productName: lookup.product?.productName ?? previous.productName,
-				category: lookup.product?.category ?? previous.category,
+				category: resolvedCategory,
 				price: suggestedPrice !== undefined ? String(suggestedPrice) : previous.price,
-				quantity: suggestedQuantity !== undefined ? String(suggestedQuantity) : previous.quantity,
+				quantity: nextQuantity,
+				weight: nextWeight,
 			};
 			formAtLookupRef.current = resolvedForm;
 			return resolvedForm;
@@ -603,10 +662,17 @@ export default function ShoppingListScreen() {
 		}
 
 		const price = Number(nextForm.price);
-		const quantity = Number(nextForm.quantity);
+		const categoryDefinition = getShoppingCategoryDefinition(nextForm.category);
+		const amountValue = categoryDefinition?.quantityMode === 'weight' ? nextForm.weight : nextForm.quantity;
+		const quantity = Number(amountValue);
 
 		if (!nextForm.productName.trim() || !nextForm.category.trim()) {
 			Alert.alert(t('shoppingList.validationTitle'), t('shoppingList.validationRequired'));
+			return false;
+		}
+
+		if (categoryDefinition?.expiryPolicy === 'required' && !isValidDate(nextForm.expiryDate)) {
+			Alert.alert(t('shoppingList.validationTitle'), t('shoppingList.validationExpiryRequired'));
 			return false;
 		}
 
@@ -646,7 +712,7 @@ export default function ShoppingListScreen() {
 			const created = await createShoppingListItem({
 				productName: nextForm.productName.trim(),
 				category: nextForm.category.trim(),
-				expiryDate: nextForm.expiryDate,
+				expiryDate: categoryDefinition?.expiryPolicy === 'hidden' ? '' : nextForm.expiryDate,
 				status: 'In_List',
 				price,
 				quantity,
@@ -784,10 +850,17 @@ export default function ShoppingListScreen() {
 		}
 
 		const price = Number(editForm.price);
-		const quantity = Number(editForm.quantity);
+		const categoryDefinition = getShoppingCategoryDefinition(editForm.category);
+		const amountValue = categoryDefinition?.quantityMode === 'weight' ? editForm.weight : editForm.quantity;
+		const quantity = Number(amountValue);
 
 		if (!editForm.productName.trim() || !editForm.category.trim()) {
 			Alert.alert(t('shoppingList.validationTitle'), t('shoppingList.validationRequired'));
+			return;
+		}
+
+		if (categoryDefinition?.expiryPolicy === 'required' && !isValidDate(editForm.expiryDate)) {
+			Alert.alert(t('shoppingList.validationTitle'), t('shoppingList.validationExpiryRequired'));
 			return;
 		}
 
@@ -808,7 +881,7 @@ export default function ShoppingListScreen() {
 						...item,
 						productName: editForm.productName.trim(),
 						category: editForm.category.trim(),
-						expiryDate: editForm.expiryDate,
+						expiryDate: categoryDefinition?.expiryPolicy === 'hidden' ? '' : editForm.expiryDate,
 						price,
 						quantity,
 					}
@@ -821,7 +894,7 @@ export default function ShoppingListScreen() {
 			await updateInventoryItem(editingItemId, {
 				productName: editForm.productName.trim(),
 				category: editForm.category.trim(),
-				expiryDate: editForm.expiryDate,
+				expiryDate: categoryDefinition?.expiryPolicy === 'hidden' ? '' : editForm.expiryDate,
 				price,
 				quantity,
 			});
@@ -1067,8 +1140,52 @@ export default function ShoppingListScreen() {
 						showsVerticalScrollIndicator={false}
 					>
 						<View style={styles.formLayout}>
+							{!form.category ? (
+								<View>
+									<Text style={[styles.productTitle, compactAddForm ? styles.sectionTitleCompact : null]}>{t('shoppingList.categoryStepTitle')}</Text>
+									<Text style={styles.categoryStepBody}>{t('shoppingList.categoryStepBody')}</Text>
+									<View style={styles.categoryGrid}>
+										{SHOPPING_CATEGORIES.map((category) => (
+											<Pressable
+												key={category.id}
+												onPress={() => selectAddCategory(category.id)}
+												style={styles.categoryCard}
+											>
+												<Text style={styles.categoryCardTitle}>{t(category.labelKey)}</Text>
+												<Text style={styles.categoryCardMeta}>
+													{category.quantityMode === 'weight'
+														? t('shoppingList.categoryMeta.weight')
+														: t('shoppingList.categoryMeta.count')}
+													{' • '}
+													{category.expiryPolicy === 'required'
+														? t('shoppingList.categoryMeta.expiryRequired')
+														: category.expiryPolicy === 'hidden'
+														? t('shoppingList.categoryMeta.noExpiry')
+														: t('shoppingList.categoryMeta.expiryOptional')}
+												</Text>
+											</Pressable>
+										))}
+									</View>
+								</View>
+							) : (
 							<View>
 								<Text style={[styles.productTitle, compactAddForm ? styles.sectionTitleCompact : null]}>{t('shoppingList.productTitle')}</Text>
+								<View style={styles.selectedCategoryCard}>
+									<View style={styles.selectedCategoryCopy}>
+										<Text style={styles.selectedCategoryLabel}>{t('shoppingList.selectedCategory')}</Text>
+										<Text style={styles.selectedCategoryValue}>{formatCategoryLabel(form.category, t)}</Text>
+										<Text style={styles.selectedCategoryHint}>
+											{selectedCategory?.expiryPolicy === 'required'
+												? t('shoppingList.categoryMeta.expiryRequired')
+												: selectedCategory?.expiryPolicy === 'hidden'
+												? t('shoppingList.categoryMeta.noExpiry')
+												: t('shoppingList.categoryMeta.expiryOptional')}
+										</Text>
+									</View>
+									<Pressable onPress={resetAddCategory} style={styles.changeCategoryButton}>
+										<Text style={styles.changeCategoryButtonText}>{t('shoppingList.changeCategory')}</Text>
+									</Pressable>
+								</View>
 								<TextInput
 									style={[styles.input, compactAddForm ? styles.inputCompact : null]}
 									placeholder={t('shoppingList.form.productName')}
@@ -1077,22 +1194,16 @@ export default function ShoppingListScreen() {
 									placeholderTextColor={colors.placeholder}
 									textAlign={i18n.language === 'he' ? 'right' : 'left'}
 								/>
-								<TextInput
-									style={[styles.input, compactAddForm ? styles.inputCompact : null]}
-									placeholder={t('shoppingList.form.category')}
-									value={form.category}
-									onChangeText={(value) => updateForm('category', value)}
-									placeholderTextColor={colors.placeholder}
-									textAlign={i18n.language === 'he' ? 'right' : 'left'}
-								/>
-								<TextInput
-									style={[styles.input, compactAddForm ? styles.inputCompact : null]}
-									placeholder={t('shoppingList.form.expiryDate')}
-									value={form.expiryDate}
-									onChangeText={(value) => updateForm('expiryDate', value)}
-									placeholderTextColor={colors.placeholder}
-									textAlign={i18n.language === 'he' ? 'right' : 'left'}
-								/>
+								{shouldShowAddExpiry ? (
+									<TextInput
+										style={[styles.input, compactAddForm ? styles.inputCompact : null]}
+										placeholder={isAddExpiryRequired ? t('shoppingList.form.expiryDateRequired') : t('shoppingList.form.expiryDate')}
+										value={form.expiryDate}
+										onChangeText={(value) => updateForm('expiryDate', value)}
+										placeholderTextColor={colors.placeholder}
+										textAlign={i18n.language === 'he' ? 'right' : 'left'}
+									/>
+								) : null}
 								<View style={[styles.rowGap, compactAddForm ? styles.compactRowGap : null]}>
 									<TextInput
 										style={[styles.input, styles.halfInput, compactAddForm ? styles.inputCompact : null]}
@@ -1105,11 +1216,11 @@ export default function ShoppingListScreen() {
 									/>
 									<TextInput
 										style={[styles.input, styles.halfInput, compactAddForm ? styles.inputCompact : null]}
-										placeholder={t('shoppingList.form.quantity')}
-										value={form.quantity}
-										onChangeText={(value) => updateForm('quantity', value)}
+										placeholder={addQuantityLabel}
+										value={isAddWeightCategory ? form.weight : form.quantity}
+										onChangeText={(value) => updateForm(isAddWeightCategory ? 'weight' : 'quantity', value)}
 										placeholderTextColor={colors.placeholder}
-										keyboardType="number-pad"
+										keyboardType={isAddWeightCategory ? 'decimal-pad' : 'number-pad'}
 										textAlign={i18n.language === 'he' ? 'right' : 'left'}
 									/>
 								</View>
@@ -1121,6 +1232,7 @@ export default function ShoppingListScreen() {
 									style={[styles.saveButton, compactAddForm ? styles.formButtonCompact : null]}
 								/>
 							</View>
+							)}
 							<View style={styles.formMiddleSpacer} />
 							<View style={styles.barcodeSection}>
 								<View style={[styles.sectionDivider, compactAddForm ? styles.sectionDividerCompact : null]} />
@@ -1285,22 +1397,29 @@ export default function ShoppingListScreen() {
 										placeholderTextColor={colors.placeholder}
 										textAlign={i18n.language === 'he' ? 'right' : 'left'}
 									/>
-									<TextInput
-										style={styles.input}
-										placeholder={t('shoppingList.form.category')}
-										value={editForm.category}
-										onChangeText={(value) => setEditForm((previous) => ({ ...previous, category: value }))}
-										placeholderTextColor={colors.placeholder}
-										textAlign={i18n.language === 'he' ? 'right' : 'left'}
-									/>
-									<TextInput
-										style={styles.input}
-										placeholder={t('shoppingList.form.expiryDate')}
-										value={editForm.expiryDate}
-										onChangeText={(value) => setEditForm((previous) => ({ ...previous, expiryDate: value }))}
-										placeholderTextColor={colors.placeholder}
-										textAlign={i18n.language === 'he' ? 'right' : 'left'}
-									/>
+									<View style={styles.selectedCategoryCard}>
+										<View style={styles.selectedCategoryCopy}>
+											<Text style={styles.selectedCategoryLabel}>{t('shoppingList.selectedCategory')}</Text>
+											<Text style={styles.selectedCategoryValue}>{formatCategoryLabel(editForm.category, t)}</Text>
+											<Text style={styles.selectedCategoryHint}>
+												{selectedEditCategory?.expiryPolicy === 'required'
+													? t('shoppingList.categoryMeta.expiryRequired')
+													: selectedEditCategory?.expiryPolicy === 'hidden'
+													? t('shoppingList.categoryMeta.noExpiry')
+													: t('shoppingList.categoryMeta.expiryOptional')}
+											</Text>
+										</View>
+									</View>
+									{shouldShowEditExpiry ? (
+										<TextInput
+											style={styles.input}
+											placeholder={isEditExpiryRequired ? t('shoppingList.form.expiryDateRequired') : t('shoppingList.form.expiryDate')}
+											value={editForm.expiryDate}
+											onChangeText={(value) => setEditForm((previous) => ({ ...previous, expiryDate: value }))}
+											placeholderTextColor={colors.placeholder}
+											textAlign={i18n.language === 'he' ? 'right' : 'left'}
+										/>
+									) : null}
 									<View style={styles.rowGap}>
 										<TextInput
 											style={[styles.input, styles.halfInput]}
@@ -1313,11 +1432,15 @@ export default function ShoppingListScreen() {
 										/>
 										<TextInput
 											style={[styles.input, styles.halfInput]}
-											placeholder={t('shoppingList.form.quantity')}
-											value={editForm.quantity}
-											onChangeText={(value) => setEditForm((previous) => ({ ...previous, quantity: value }))}
+											placeholder={editQuantityLabel}
+											value={isEditWeightCategory ? editForm.weight : editForm.quantity}
+											onChangeText={(value) =>
+												setEditForm((previous) => ({
+													...previous,
+													[isEditWeightCategory ? 'weight' : 'quantity']: value,
+												}))}
 											placeholderTextColor={colors.placeholder}
-											keyboardType="number-pad"
+											keyboardType={isEditWeightCategory ? 'decimal-pad' : 'number-pad'}
 											textAlign={i18n.language === 'he' ? 'right' : 'left'}
 										/>
 									</View>
@@ -1351,6 +1474,7 @@ export default function ShoppingListScreen() {
 								<Text style={styles.detailsText}>
 									{t('shoppingList.detailsTemplate', {
 										category: item.category,
+										price: item.price.toFixed(2),
 										quantity: item.quantity,
 										expiryDate: item.expiryDate,
 									})}
@@ -1541,6 +1665,81 @@ const styles = StyleSheet.create({
 	},
 	barcodeSection: {
 		marginTop: 0,
+	},
+	categoryStepBody: {
+		color: colors.textSecondary,
+		fontSize: fontSizes.small,
+		marginBottom: spacing.md,
+		lineHeight: 20,
+	},
+	categoryGrid: {
+		flexDirection: 'row',
+		flexWrap: 'wrap',
+		gap: spacing.sm,
+	},
+	categoryCard: {
+		width: '48%',
+		minHeight: 92,
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: colors.border,
+		backgroundColor: '#FBFAFF',
+		padding: spacing.sm,
+		justifyContent: 'space-between',
+	},
+	categoryCardTitle: {
+		color: colors.text,
+		fontSize: fontSizes.small,
+		fontWeight: '700',
+	},
+	categoryCardMeta: {
+		color: colors.textSecondary,
+		fontSize: 11,
+		lineHeight: 16,
+	},
+	selectedCategoryCard: {
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: colors.border,
+		backgroundColor: '#FBFAFF',
+		padding: spacing.sm,
+		marginBottom: spacing.sm,
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'space-between',
+		gap: spacing.sm,
+	},
+	selectedCategoryCopy: {
+		flex: 1,
+	},
+	selectedCategoryLabel: {
+		color: colors.textSecondary,
+		fontSize: 12,
+		fontWeight: '600',
+	},
+	selectedCategoryValue: {
+		color: colors.text,
+		fontSize: fontSizes.medium,
+		fontWeight: '700',
+		marginTop: 2,
+	},
+	selectedCategoryHint: {
+		color: colors.textSecondary,
+		fontSize: 11,
+		marginTop: 4,
+	},
+	changeCategoryButton: {
+		paddingHorizontal: spacing.sm,
+		paddingVertical: spacing.xs,
+		borderRadius: borderRadius,
+		borderWidth: 1,
+		borderColor: colors.border,
+		backgroundColor: colors.card,
+	},
+	changeCategoryButtonText: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: '700',
 	},
 	input: {
 		borderWidth: 1,

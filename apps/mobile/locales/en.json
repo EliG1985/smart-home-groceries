@@ -16,6 +16,8 @@
     "login": "Login",
     "register": "Register",
     "resetPass": "Reset Pass",
+    "childInviteSetup": "Child Setup",
+    "childPinUnlock": "Enter PIN",
     "inventory": "My Home Stock",
     "shoppingList": "Shopping List",
     "barcodeScanner": "Barcode Scanner",
@@ -243,6 +245,45 @@
     "newPasswordRequired": "New password is required.",
     "confirmNewPasswordRequired": "Please confirm your new password."
   },
+  "childInvite": {
+    "title": "Set up this child profile",
+    "subtitle": "Create the child profile details on this device. The parent account stays unchanged.",
+    "loading": "Loading child invitation...",
+    "readyTitle": "Child invitation ready",
+    "readyBody": "Complete the child profile setup on this device to join the family.",
+    "invalidTitle": "Unable to open child invitation",
+    "invalidBody": "This child invitation is invalid or has already been used.",
+    "missingBody": "No child invitation was found on this device.",
+    "birthdayPlaceholder": "YYYY-MM-DD",
+    "pinLabel": "4-digit PIN",
+    "pinPlaceholder": "Choose a 4-digit PIN",
+    "confirmPinLabel": "Confirm PIN",
+    "confirmPinPlaceholder": "Re-enter the 4-digit PIN",
+    "submitButton": "Create child profile",
+    "submitting": "Creating child profile...",
+    "submitFailedTitle": "Unable to create child profile",
+    "validation": {
+      "displayNameRequired": "Display name is required.",
+      "pinRequired": "Enter a 4-digit PIN.",
+      "pinMismatch": "PIN codes do not match."
+    }
+  },
+  "childPin": {
+    "title": "Unlock child profile",
+    "subtitle": "Enter the PIN for {{name}} to continue.",
+    "placeholder": "4-digit PIN",
+    "unlockButton": "Unlock",
+    "unlocking": "Unlocking...",
+    "invalidTitle": "Incorrect PIN",
+    "invalidBody": "The PIN is incorrect. Try again.",
+    "useAdultAccount": "Use adult account instead"
+  },
+  "childAccount": {
+    "profileTitle": "Managed child profile",
+    "profileBody": "This profile is managed from the parent account. Personal details can be viewed here, but account changes must be made by the parent.",
+    "membersTitle": "Members controls are managed by the parent",
+    "membersBody": "This area is only available to the parent account or other adult admins."
+  },
   "shoppingList": {
     "totalPrefix": "Total",
     "openAdd": "Add Item",
@@ -277,6 +318,10 @@
     "deleteFailedTitle": "Unable to delete item",
     "batchFailedTitle": "Batch action failed",
     "productTitle": "Product Details",
+    "categoryStepTitle": "Choose a category first",
+    "categoryStepBody": "Start with the supermarket category so the form can show only the relevant product fields.",
+    "selectedCategory": "Selected category",
+    "changeCategory": "Change",
     "barcodeTitle": "Barcode Assist",
     "barcodePlaceholder": "Barcode (8-14 digits)",
     "barcodeLookup": "Lookup",
@@ -288,6 +333,7 @@
     "validationTitle": "Invalid item",
     "validationRequired": "Product name and category are required.",
     "validationExpiry": "Expiry date must be valid when provided.",
+    "validationExpiryRequired": "Expiry date is required for this category.",
     "validationNumbers": "Price must be 0 or more and quantity must be greater than 0.",
     "edit": "Edit",
     "saveEdit": "Save",
@@ -309,13 +355,39 @@
       "price": "Price",
       "quantity": "Qty"
     },
-    "detailsTemplate": "Category: {{category}} | Qty: {{quantity}} | Expiry: {{expiryDate}}",
+    "detailsTemplate": "Category: {{category}} | Price: ₪{{price}} | Qty: {{quantity}} | Expiry: {{expiryDate}}",
+    "categoryMeta": {
+      "weight": "Sold by weight",
+      "count": "Sold by unit",
+      "expiryRequired": "Expiry date required",
+      "expiryOptional": "Expiry date optional",
+      "noExpiry": "No expiry date needed"
+    },
+    "categories": {
+      "fruitsVegetables": "Fruits & Vegetables",
+      "meatPoultry": "Meat & Poultry",
+      "fishSeafood": "Fish & Seafood",
+      "dairyEggs": "Dairy & Eggs",
+      "bakeryBread": "Bakery & Bread",
+      "deliPrepared": "Deli & Prepared Foods",
+      "frozenFoods": "Frozen Foods",
+      "pantryDryGoods": "Pantry & Dry Goods",
+      "cannedJarred": "Canned & Jarred",
+      "breakfastCereal": "Breakfast & Cereal",
+      "beverages": "Beverages",
+      "snacksCandy": "Snacks & Candy",
+      "householdCleaning": "Household & Cleaning",
+      "personalCare": "Personal Care",
+      "other": "Other"
+    },
     "form": {
       "productName": "Product name",
       "category": "Category",
       "expiryDate": "Expiry date (YYYY-MM-DD)",
+      "expiryDateRequired": "Expiry date* (YYYY-MM-DD)",
       "price": "Price",
-      "quantity": "Quantity"
+      "quantity": "Quantity",
+      "weight": "Weight (kg)"
     }
   },
   "scanner": {

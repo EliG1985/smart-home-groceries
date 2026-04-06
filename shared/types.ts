@@ -139,10 +139,13 @@ export type CollaborationParticipant = {
 
 export type CollaborationInviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
 
+export type CollaborationInviteJoinMode = 'adult' | 'child';
+
 export type CollaborationInvite = {
   id: string;
   token: string;
   email: string;
+  joinMode: CollaborationInviteJoinMode;
   role: CollaborationRole;
   permissions: CollaborationShoppingPermissions;
   status: CollaborationInviteStatus;

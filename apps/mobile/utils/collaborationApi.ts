@@ -48,11 +48,24 @@ type InviteLookupResponse = {
   id: string;
   token: string;
   email: string;
+  joinMode: 'adult' | 'child';
   invitedBy?: string;
   role: UserRole;
   permissions: ShoppingPermissions;
   expiresAt: string;
   status: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+};
+type ClaimChildInviteResponse = {
+  claimed: boolean;
+  childProfile: {
+    familyId: string;
+    userId: string;
+    role: UserRole;
+    permissions: ShoppingPermissions;
+    displayName: string;
+    birthday: string;
+    phone: string;
+  };
 };
 type AcceptInviteResponse = {
   accepted: boolean;
@@ -196,6 +209,63 @@ const collabRequest = async <T>(
   throw lastError ?? new Error('Network request failed');
 };
 
+const publicCollabRequest = async <T>(
+  path: string,
+  options: { method?: string; body?: unknown } = {},
+): Promise<T> => {
+  let lastError: Error | null = null;
+
+  for (const baseUrl of getOrderedBaseUrls()) {
+    const requestUrl = `${baseUrl}${path}`;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller
+      ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      : null;
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: options.method ?? 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: controller?.signal,
+      });
+
+      preferredBaseUrl = baseUrl;
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Collaboration request failed (${response.status}): ${text}`);
+      }
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      return response.json() as Promise<T>;
+    } catch (error) {
+      const err =
+        (error as { name?: string })?.name === 'AbortError'
+          ? new Error(`Request timeout after ${REQUEST_TIMEOUT_MS}ms (API: ${requestUrl})`)
+          : new Error(
+            `${error instanceof Error ? error.message : 'Network request failed'} (API: ${requestUrl})`,
+          );
+      lastError = err;
+
+      if (!isNetworkFailure(error)) {
+        throw err;
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Network request failed');
+};
+
 export const fetchParticipants = (): Promise<ParticipantsResponse> =>
   collabRequest<ParticipantsResponse>('/api/collaboration/participants');
 
@@ -224,6 +294,15 @@ export const acceptInviteToken = (token: string): Promise<AcceptInviteResponse> 
   collabRequest<AcceptInviteResponse>('/api/collaboration/invites/accept', {
     method: 'POST',
     body: { token },
+  });
+
+export const claimChildInvite = (
+  token: string,
+  payload: { displayName: string; birthday: string; phone: string },
+): Promise<ClaimChildInviteResponse> =>
+  publicCollabRequest<ClaimChildInviteResponse>('/api/collaboration/invites/claim-child', {
+    method: 'POST',
+    body: { token, ...payload },
   });
 
 export const declineInviteToken = (token: string): Promise<DeclineInviteResponse> =>

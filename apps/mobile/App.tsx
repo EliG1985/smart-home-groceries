@@ -22,6 +22,8 @@ import InviteReviewScreen from './modules/InviteReviewScreen';
 import LoginScreen from './modules/LoginScreen';
 import RegistrationScreen from './modules/RegistrationScreen';
 import ResetPasswordScreen from './modules/ResetPasswordScreen';
+import ChildInviteSetupScreen from './modules/ChildInviteSetupScreen';
+import ChildPinUnlockScreen from './modules/ChildPinUnlockScreen';
 import BarcodeScannerScreen from './modules/BarcodeScannerScreen';
 import AccountProfileScreen from './modules/AccountProfileScreen';
 import SettingsScreen from './modules/SettingsScreen';
@@ -29,11 +31,15 @@ import InventoryScreen from './modules/inventory';
 import ChatScreen from './modules/chat';
 import ShoppingListScreen from './modules/shoppingList';
 import {
+  clearPendingInviteToken,
   extractInviteTokenFromUrl,
   getPendingInviteToken,
   setPendingInviteToken,
 } from './utils/inviteLink';
+import { clearChildSession, getChildSession } from './utils/childSession';
+import { lookupInviteByToken } from './utils/collaborationApi';
 import { supabase } from './utils/supabaseClient';
+import { getUserContext, type AccountType } from './utils/userContext';
 
 const MembersScreenModule = require('./modules/MembersScreen');
 const MembersScreen: React.ComponentType<any> =
@@ -84,6 +90,8 @@ type RootStackParamList = {
   Register: undefined;
   ForgotPassword: undefined;
   ResetPassword: undefined;
+  ChildInviteSetup: undefined;
+  ChildPinUnlock: undefined;
   Main: undefined;
   InviteReview: undefined;
   BarcodeScanner: undefined;
@@ -95,9 +103,10 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 type AppDrawerContentProps = DrawerContentComponentProps & {
   onLogout: () => Promise<void>;
+  showAccountProfile: boolean;
 };
 
-function AppDrawerContent({ onLogout, ...props }: AppDrawerContentProps) {
+function AppDrawerContent({ onLogout, showAccountProfile, ...props }: AppDrawerContentProps) {
   const { t } = useTranslation();
   const [loggingOut, setLoggingOut] = React.useState(false);
 
@@ -117,13 +126,15 @@ function AppDrawerContent({ onLogout, ...props }: AppDrawerContentProps) {
   return (
     <View style={styles.drawerContentWrapper}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerScrollContent}>
-        <View style={styles.accountHeaderWrap}>
-          <DrawerItem
-            label={t('screens.accountProfile')}
-            onPress={() => props.navigation.navigate('AccountProfile')}
-          />
-          <View style={styles.accountDivider} />
-        </View>
+        {showAccountProfile ? (
+          <View style={styles.accountHeaderWrap}>
+            <DrawerItem
+              label={t('screens.accountProfile')}
+              onPress={() => props.navigation.navigate('AccountProfile')}
+            />
+            <View style={styles.accountDivider} />
+          </View>
+        ) : null}
 
         <DrawerItemList {...props} />
       </DrawerContentScrollView>
@@ -141,11 +152,40 @@ function AppDrawerContent({ onLogout, ...props }: AppDrawerContentProps) {
 function DrawerNavigator({ onLogout }: { onLogout: () => Promise<void> }) {
   const { t } = useTranslation();
   const drawerWidth = Math.min(Dimensions.get('window').width * 0.72, 300);
+  const [accountType, setAccountType] = React.useState<AccountType | null>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    getUserContext()
+      .then((context) => {
+        if (mounted) {
+          setAccountType(context.accountType);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setAccountType('adult');
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const isChildAccount = accountType === 'child';
 
   return (
     <Drawer.Navigator
       initialRouteName="Inventory"
-      drawerContent={(props) => <AppDrawerContent {...props} onLogout={onLogout} />}
+      drawerContent={(props) => (
+        <AppDrawerContent
+          {...props}
+          onLogout={onLogout}
+          showAccountProfile={accountType === 'adult'}
+        />
+      )}
       screenOptions={{
         drawerStyle: {
           width: drawerWidth,
@@ -169,7 +209,9 @@ function DrawerNavigator({ onLogout }: { onLogout: () => Promise<void> }) {
       />
       <Drawer.Screen name="ShoppingList" component={ShoppingListScreen} options={{ title: t('screens.shoppingList') }} />
       <Drawer.Screen name="Inventory" component={InventoryScreen} options={{ title: t('screens.inventory') }} />
-      <Drawer.Screen name="Members" component={MembersScreen} options={{ title: t('screens.members') }} />
+      {!isChildAccount ? (
+        <Drawer.Screen name="Members" component={MembersScreen} options={{ title: t('screens.members') }} />
+      ) : null}
       <Drawer.Screen name="Chat" component={ChatScreen} options={{ title: t('screens.chat') }} />
       <Drawer.Screen name="Reports" component={ReportsScreen} options={{ title: t('screens.reports') }} />
       <Drawer.Screen name="Store" component={StoreScreen} options={{ title: t('screens.store') }} />
@@ -208,12 +250,19 @@ export default function App() {
     }
 
     await AsyncStorage.multiRemove(['supabaseSession', 'localAuth']);
+    await clearChildSession();
+    await clearPendingInviteToken();
 
     if (navigationRef.isReady()) {
       navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
     } else {
       setInitialRoute('Login');
     }
+  }, []);
+
+  const resolveInviteRoute = React.useCallback(async (token: string) => {
+    const invite = await lookupInviteByToken(token);
+    return invite.joinMode === 'child' ? 'ChildInviteSetup' : 'InviteReview';
   }, []);
 
   const handleRecoveryLink = React.useCallback(async (url: string | null, shouldNavigate: boolean) => {
@@ -277,6 +326,27 @@ export default function App() {
     }
 
     await setPendingInviteToken(token);
+    let route: 'ChildInviteSetup' | 'InviteReview' | 'Login' = 'Login';
+
+    try {
+      route = await resolveInviteRoute(token);
+    } catch {
+      route = 'Login';
+    }
+
+    if (route === 'ChildInviteSetup') {
+      if (shouldNavigate) {
+        if (navigationRef.isReady()) {
+          navigationRef.reset({ index: 0, routes: [{ name: 'ChildInviteSetup' }] });
+        } else {
+          setInitialRoute('ChildInviteSetup');
+        }
+      }
+
+      Alert.alert(t('childInvite.readyTitle'), t('childInvite.readyBody'));
+      return true;
+    }
+
     const { data } = await supabase.auth.getSession();
 
     if (data.session?.user) {
@@ -294,7 +364,7 @@ export default function App() {
 
     Alert.alert(t('members.pendingInviteTitle'), t('members.pendingInviteBody'));
     return true;
-  }, [processPendingInvite, t]);
+  }, [processPendingInvite, resolveInviteRoute, t]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -324,12 +394,36 @@ export default function App() {
       await handleInviteLink(initialUrl, false);
 
       const pendingInviteToken = await getPendingInviteToken();
+      const childSession = await getChildSession();
+
+      if (pendingInviteToken) {
+        try {
+          const pendingRoute = await resolveInviteRoute(pendingInviteToken);
+          if (pendingRoute === 'ChildInviteSetup') {
+            if (mounted) {
+              setInitialRoute('ChildInviteSetup');
+              setLoading(false);
+            }
+            return;
+          }
+        } catch {
+          await clearPendingInviteToken();
+        }
+      }
 
       const { data: sessionData } = await supabase.auth.getSession();
       if (sessionData.session?.user) {
         await processPendingInvite(false);
         if (mounted) {
           setInitialRoute(pendingInviteToken ? 'InviteReview' : 'Main');
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (childSession && !pendingInviteToken) {
+        if (mounted) {
+          setInitialRoute('ChildPinUnlock');
           setLoading(false);
         }
         return;
@@ -403,7 +497,7 @@ export default function App() {
       linkSubscription.remove();
       subscription.unsubscribe();
     };
-  }, [handleRecoveryLink]);
+  }, [handleInviteLink, handleRecoveryLink, processPendingInvite, resolveInviteRoute]);
 
   if (loading || !initialRoute) {
     return (
@@ -423,6 +517,8 @@ export default function App() {
           <Stack.Screen name="Register" component={RegistrationScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          <Stack.Screen name="ChildInviteSetup" component={ChildInviteSetupScreen} />
+          <Stack.Screen name="ChildPinUnlock" component={ChildPinUnlockScreen} />
           <Stack.Screen name="InviteReview" component={InviteReviewScreen} />
           <Stack.Screen name="Main">
             {() => <DrawerNavigator onLogout={handleLogout} />}

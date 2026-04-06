@@ -88,6 +88,7 @@ export default function MembersScreen() {
   const { t } = useTranslation();
   const [members, setMembers] = React.useState<Member[]>([]);
   const [myRole, setMyRole] = React.useState<UserRole>('admin');
+  const [isChildAccount, setIsChildAccount] = React.useState(false);
   const [fetching, setFetching] = React.useState(true);
   const [inviteEmail, setInviteEmail] = React.useState('');
   const [inviteEmailError, setInviteEmailError] = React.useState('');
@@ -118,6 +119,18 @@ export default function MembersScreen() {
         supabase.auth.getUser(),
       ]);
       setMyRole(ctx.role);
+      setIsChildAccount(ctx.accountType === 'child');
+
+      if (ctx.accountType === 'child') {
+        setMembers([]);
+        setPendingInvites([]);
+        setActivityEvents([]);
+        setLiveControlItems([]);
+        if (!background) {
+          setFetching(false);
+        }
+        return;
+      }
 
       const selfMember: Member = {
         id: ctx.userId,
@@ -281,13 +294,24 @@ export default function MembersScreen() {
     );
   }
 
+  if (isChildAccount) {
+    return (
+      <View style={styles.centeredContainer}>
+        <View style={styles.blockedCard}>
+          <Text style={styles.blockedTitle}>{t('childAccount.membersTitle')}</Text>
+          <Text style={styles.blockedBody}>{t('childAccount.membersBody')}</Text>
+        </View>
+      </View>
+    );
+  }
+
   const canInvite = myRole === 'admin';
   const canRemove = myRole === 'admin';
 
   const handleGenerateInviteLink = async () => {
     setGeneratingLink(true);
     try {
-      const response = await generateInviteLink(inviteRole, invitePermissions, 'kid');
+      const response = await generateInviteLink(inviteRole, invitePermissions);
       setInviteLink(response.inviteLink);
       Alert.alert(t('members.linkGeneratedTitle'), t('members.linkGeneratedBody'));
       await loadMembers();
@@ -703,6 +727,30 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
     flexGrow: 1,
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.background,
+  },
+  blockedCard: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#FFD600',
+    borderWidth: 1,
+    borderRadius: borderRadius,
+    padding: spacing.md,
+  },
+  blockedTitle: {
+    color: '#7A6000',
+    fontSize: fontSizes.medium,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  blockedBody: {
+    color: '#7A6000',
+    fontSize: fontSizes.small,
+    lineHeight: 20,
   },
   section: {
     backgroundColor: colors.card,

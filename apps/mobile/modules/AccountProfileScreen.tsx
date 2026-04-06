@@ -15,6 +15,7 @@ import { colors, spacing, borderRadius, fontSizes } from '../ui/theme';
 import { supabase } from '../utils/supabaseClient';
 import { getUserContext } from '../utils/userContext';
 import type { ShoppingPermissions, UserRole } from '../utils/userContext';
+import { getChildSession } from '../utils/childSession';
 
 let DateTimePicker: any = null;
 if (Platform.OS === 'android' || Platform.OS === 'ios') {
@@ -43,6 +44,7 @@ export default function AccountProfileScreen() {
   const [errors, setErrors] = React.useState<FieldErrors>({});
   const [saved, setSaved] = React.useState(false);
   const [role, setRole] = React.useState<UserRole>('viewer');
+  const [isChildAccount, setIsChildAccount] = React.useState(false);
   const [permissions, setPermissions] = React.useState<ShoppingPermissions>({
     create: false,
     edit: false,
@@ -52,7 +54,7 @@ export default function AccountProfileScreen() {
   });
 
   React.useEffect(() => {
-    Promise.all([supabase.auth.getUser(), getUserContext()]).then(([{ data, error }, context]) => {
+    Promise.all([supabase.auth.getUser(), getUserContext(), getChildSession()]).then(([{ data, error }, context, childSession]) => {
       if (!error && data?.user) {
         const meta = data.user.user_metadata ?? {};
         setEmail(data.user.email ?? '');
@@ -62,7 +64,14 @@ export default function AccountProfileScreen() {
         if (meta.birthday) {
           setBirthday(new Date(meta.birthday));
         }
+      } else if (context.accountType === 'child' && childSession) {
+        setEmail('');
+        setFullName(childSession.displayName);
+        setPhone(childSession.phone);
+        setCity('');
+        setBirthday(childSession.birthday ? new Date(childSession.birthday) : null);
       }
+      setIsChildAccount(context.accountType === 'child');
       setRole(context.role);
       setPermissions(context.permissions);
       setFetching(false);
@@ -141,16 +150,22 @@ export default function AccountProfileScreen() {
         <Text style={styles.required}>*</Text> {t('common.requiredFields')}
       </Text>
 
-      {/* Email — read-only */}
-      <View style={styles.fieldWrapper}>
-        <Text style={styles.label}>{t('labels.email')}</Text>
-        <TextInput
-          style={[styles.input, styles.readOnly]}
-          value={email}
-          editable={false}
-          placeholderTextColor={colors.placeholder}
-        />
-      </View>
+      {isChildAccount ? (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerTitle}>{t('childAccount.profileTitle')}</Text>
+          <Text style={styles.infoBannerBody}>{t('childAccount.profileBody')}</Text>
+        </View>
+      ) : (
+        <View style={styles.fieldWrapper}>
+          <Text style={styles.label}>{t('labels.email')}</Text>
+          <TextInput
+            style={[styles.input, styles.readOnly]}
+            value={email}
+            editable={false}
+            placeholderTextColor={colors.placeholder}
+          />
+        </View>
+      )}
 
       <View style={styles.roleCard}>
         <Text style={styles.roleTitle}>{t('profile.roleTitle')}</Text>
@@ -168,11 +183,12 @@ export default function AccountProfileScreen() {
           {t('labels.fullName')} <Text style={styles.required}>*</Text>
         </Text>
         <TextInput
-          style={inputStyle('fullName')}
+          style={isChildAccount ? [styles.input, styles.readOnly] : inputStyle('fullName')}
           value={fullName}
           onChangeText={(v) => { setFullName(v); clearError('fullName'); setSaved(false); }}
           placeholder={t('placeholders.fullName')}
           placeholderTextColor={colors.placeholder}
+          editable={!isChildAccount}
         />
         {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
       </View>
@@ -204,6 +220,7 @@ export default function AccountProfileScreen() {
               setSaved(false);
             }}
             max={new Date().toISOString().split('T')[0]}
+            disabled={isChildAccount}
           />
         ) : (
           <View>
@@ -211,6 +228,7 @@ export default function AccountProfileScreen() {
               title={birthday ? birthday.toLocaleDateString() : t('placeholders.birthday')}
               onPress={() => setShowDatePicker(true)}
               style={styles.datePickerBtn}
+              disabled={isChildAccount}
             />
             {showDatePicker && DateTimePicker ? (
               <DateTimePicker
@@ -235,12 +253,13 @@ export default function AccountProfileScreen() {
           <Text style={styles.optional}>({t('common.optional')})</Text>
         </Text>
         <TextInput
-          style={inputStyle('phone')}
+          style={isChildAccount ? [styles.input, styles.readOnly] : inputStyle('phone')}
           value={phone}
           onChangeText={(v) => { setPhone(v); clearError('phone'); setSaved(false); }}
           placeholder={t('placeholders.phone')}
           placeholderTextColor={colors.placeholder}
           keyboardType="phone-pad"
+          editable={!isChildAccount}
         />
         {errors.phone ? <Text style={styles.errorText}>{errors.phone}</Text> : null}
       </View>
@@ -252,11 +271,12 @@ export default function AccountProfileScreen() {
           <Text style={styles.optional}>({t('common.optional')})</Text>
         </Text>
         <TextInput
-          style={styles.input}
+          style={isChildAccount ? [styles.input, styles.readOnly] : styles.input}
           value={city}
           onChangeText={(v) => { setCity(v); setSaved(false); }}
           placeholder={t('placeholders.city')}
           placeholderTextColor={colors.placeholder}
+          editable={!isChildAccount}
         />
       </View>
 
@@ -266,11 +286,13 @@ export default function AccountProfileScreen() {
         </View>
       ) : null}
 
-      <AppButton
-        title={loading ? t('profile.saving') : t('profile.save')}
-        onPress={handleSave}
-        loading={loading}
-      />
+      {!isChildAccount ? (
+        <AppButton
+          title={loading ? t('profile.saving') : t('profile.save')}
+          onPress={handleSave}
+          loading={loading}
+        />
+      ) : null}
     </ScrollView>
   );
 }
@@ -337,6 +359,25 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontSize: 12,
     marginTop: spacing.xs,
+  },
+  infoBanner: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#FFD600',
+    borderWidth: 1,
+    borderRadius: borderRadius,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  infoBannerTitle: {
+    color: '#7A6000',
+    fontSize: fontSizes.small,
+    fontWeight: '700',
+  },
+  infoBannerBody: {
+    color: '#7A6000',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
   },
   datePickerBtn: {
     marginVertical: 0,

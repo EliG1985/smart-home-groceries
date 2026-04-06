@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabaseClient';
+import { getChildSession } from './childSession';
 
 export type UserRole = 'admin' | 'editor' | 'viewer';
 export type SubscriptionTier = 'Free' | 'Premium';
+export type AccountType = 'adult' | 'child';
 
 export type ShoppingPermissions = {
   create: boolean;
@@ -15,6 +17,8 @@ export type ShoppingPermissions = {
 export type UserContext = {
   familyId: string;
   userId: string;
+  fullName: string;
+  accountType: AccountType;
   role: UserRole;
   subscriptionTier: SubscriptionTier;
   familyMembersCount: number;
@@ -26,6 +30,8 @@ const USER_CONTEXT_KEY = 'userContext';
 const DEFAULT_CONTEXT: UserContext = {
   familyId: 'demo-family',
   userId: 'demo-user',
+  fullName: 'Demo User',
+  accountType: 'adult',
   role: 'admin',
   subscriptionTier: 'Free',
   familyMembersCount: 1,
@@ -36,6 +42,14 @@ const DEFAULT_CONTEXT: UserContext = {
     markDone: true,
     viewProgress: true,
   },
+};
+
+const normalizeAccountType = (value: unknown): AccountType => {
+  if (value === 'child') {
+    return 'child';
+  }
+
+  return 'adult';
 };
 
 const normalizeRole = (value: unknown): UserRole => {
@@ -117,6 +131,8 @@ const deriveFromUser = (user: any): UserContext => {
   return {
     familyId: String(metadata.family_id ?? DEFAULT_CONTEXT.familyId),
     userId: String(user?.id ?? DEFAULT_CONTEXT.userId),
+    fullName: String(metadata.full_name ?? user?.email ?? DEFAULT_CONTEXT.fullName),
+    accountType: 'adult',
     role,
     subscriptionTier: normalizeTier(metadata.subscription_tier ?? metadata.tier),
     familyMembersCount: normalizeMembersCount(metadata.family_members_count),
@@ -133,6 +149,15 @@ const persistContext = async (context: UserContext): Promise<void> => {
 };
 
 export const getUserContext = async (): Promise<UserContext> => {
+  try {
+    const childSession = await getChildSession();
+    if (childSession?.context) {
+      return childSession.context;
+    }
+  } catch {
+    // Fall through to Supabase and cached context.
+  }
+
   try {
     const { data, error } = await supabase.auth.getUser();
     if (!error && data?.user) {
@@ -151,6 +176,8 @@ export const getUserContext = async (): Promise<UserContext> => {
       return {
         familyId: String(parsed.familyId ?? DEFAULT_CONTEXT.familyId),
         userId: String(parsed.userId ?? DEFAULT_CONTEXT.userId),
+        fullName: String(parsed.fullName ?? DEFAULT_CONTEXT.fullName),
+        accountType: normalizeAccountType(parsed.accountType),
         role: normalizeRole(parsed.role),
         subscriptionTier: normalizeTier(parsed.subscriptionTier),
         familyMembersCount: normalizeMembersCount(parsed.familyMembersCount),

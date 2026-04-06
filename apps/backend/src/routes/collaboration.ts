@@ -16,6 +16,7 @@ import {
 } from '../utils/collaborationGuards';
 
 type InviteStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+type InviteJoinMode = 'adult' | 'child';
 
 type FamilyMemberRow = {
   id: string;
@@ -68,6 +69,7 @@ const mapInvite = (row: FamilyInviteRow) => ({
   id: row.id,
   token: row.token,
   email: row.email,
+  joinMode: isLinkOnlyInvite(row.email) ? ('child' as InviteJoinMode) : ('adult' as InviteJoinMode),
   invitedBy: row.invited_by,
   role: row.role,
   permissions: normalizePermissions(row.permissions, row.role),
@@ -365,23 +367,51 @@ router.post('/invite/link', requireAdminRole, async (req: Request, res: Response
       : `member-${token.slice(0, 6)}`;
   const aliasEmail = `${aliasLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.no-email@invite.local`;
 
-  const { error: insertError } = await supabase
+  const { data: existingPendingLink } = await supabase
     .from('family_invites')
-    .insert({
-      family_id: familyId,
-      email: aliasEmail,
-      role,
-      permissions,
-      token,
-      invited_by: invitedBy,
-      expires_at: expiresAt,
-      status: 'pending',
-    });
+    .select('id')
+    .eq('family_id', familyId)
+    .ilike('email', aliasEmail)
+    .eq('status', 'pending')
+    .maybeSingle();
 
-  if (insertError) {
-    return res.status(500).json({
-      error: { code: 'DB_ERROR', message: insertError.message },
-    });
+  if (existingPendingLink?.id) {
+    const { error: updateError } = await supabase
+      .from('family_invites')
+      .update({
+        role,
+        permissions,
+        token,
+        invited_by: invitedBy,
+        expires_at: expiresAt,
+        status: 'pending',
+      })
+      .eq('id', existingPendingLink.id);
+
+    if (updateError) {
+      return res.status(500).json({
+        error: { code: 'DB_ERROR', message: updateError.message },
+      });
+    }
+  } else {
+    const { error: insertError } = await supabase
+      .from('family_invites')
+      .insert({
+        family_id: familyId,
+        email: aliasEmail,
+        role,
+        permissions,
+        token,
+        invited_by: invitedBy,
+        expires_at: expiresAt,
+        status: 'pending',
+      });
+
+    if (insertError) {
+      return res.status(500).json({
+        error: { code: 'DB_ERROR', message: insertError.message },
+      });
+    }
   }
 
   const { publicInviteUrl } = buildInviteUrls(token);
@@ -437,6 +467,132 @@ router.get('/invites/:token', async (req: Request<{ token: string }>, res: Respo
 
   return res.json({
     ...mapInvite(invite),
+  });
+});
+
+router.post('/invites/claim-child', async (req: Request, res: Response) => {
+  const token = String(req.body?.token ?? '').trim();
+  const displayName = String(req.body?.displayName ?? '').trim();
+  const birthday = String(req.body?.birthday ?? '').trim();
+  const phone = String(req.body?.phone ?? '').trim();
+
+  if (!token) {
+    return res.status(400).json({
+      error: { code: 'INVALID_TOKEN', message: 'Invite token is required.' },
+    });
+  }
+
+  if (!displayName) {
+    return res.status(400).json({
+      error: { code: 'INVALID_NAME', message: 'Display name is required.' },
+    });
+  }
+
+  if (!birthday) {
+    return res.status(400).json({
+      error: { code: 'INVALID_BIRTHDAY', message: 'Birthday is required.' },
+    });
+  }
+
+  if (!phone.match(/^\+?\d{7,15}$/)) {
+    return res.status(400).json({
+      error: { code: 'INVALID_PHONE', message: 'A valid phone number is required.' },
+    });
+  }
+
+  const { data, error } = await supabase
+    .from('family_invites')
+    .select('*')
+    .eq('token', token)
+    .maybeSingle();
+
+  if (error) {
+    return res.status(500).json({
+      error: { code: 'DB_ERROR', message: error.message },
+    });
+  }
+
+  if (!data) {
+    return res.status(404).json({
+      error: { code: 'INVITE_NOT_FOUND', message: 'Invite not found.' },
+    });
+  }
+
+  const invite = data as FamilyInviteRow;
+  if (!isLinkOnlyInvite(invite.email)) {
+    return res.status(409).json({
+      error: { code: 'INVITE_NOT_CHILD', message: 'This invite requires an email account sign-in.' },
+    });
+  }
+
+  if (invite.status !== 'pending') {
+    return res.status(409).json({
+      error: { code: 'INVITE_NOT_PENDING', message: `Invite is already ${invite.status}.` },
+    });
+  }
+
+  if (tokenIsExpired(invite.expires_at)) {
+    await supabase
+      .from('family_invites')
+      .update({ status: 'expired' })
+      .eq('id', invite.id);
+
+    return res.status(410).json({
+      error: { code: 'INVITE_EXPIRED', message: 'Invite token has expired.' },
+    });
+  }
+
+  const childUserId = `child_${crypto.randomUUID()}`;
+  const memberPayload = {
+    family_id: invite.family_id,
+    user_id: childUserId,
+    email: invite.email,
+    full_name: displayName,
+    role: invite.role,
+    permissions: normalizePermissions(invite.permissions, invite.role),
+  };
+
+  const { error: memberUpsertError } = await supabase
+    .from('family_members')
+    .upsert(memberPayload, { onConflict: 'family_id,email' });
+
+  if (memberUpsertError) {
+    return res.status(500).json({
+      error: { code: 'DB_ERROR', message: memberUpsertError.message },
+    });
+  }
+
+  const { error: inviteUpdateError } = await supabase
+    .from('family_invites')
+    .update({
+      status: 'accepted',
+      accepted_by: childUserId,
+      accepted_at: new Date().toISOString(),
+    })
+    .eq('id', invite.id);
+
+  if (inviteUpdateError) {
+    return res.status(500).json({
+      error: { code: 'DB_ERROR', message: inviteUpdateError.message },
+    });
+  }
+
+  void appendActivityEvent(invite.family_id, childUserId, 'invite_accepted', 'family_invite', invite.id, {
+    role: invite.role,
+    childProfile: true,
+  });
+
+  return res.json({
+    claimed: true,
+    childProfile: {
+      familyId: invite.family_id,
+      userId: childUserId,
+      role: invite.role,
+      permissions: normalizePermissions(invite.permissions, invite.role),
+      displayName,
+      birthday,
+      phone,
+    },
   });
 });
 

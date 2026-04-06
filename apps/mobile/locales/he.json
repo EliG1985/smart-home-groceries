@@ -16,6 +16,8 @@
     "login": "התחברות",
     "register": "הרשמה",
     "resetPass": "איפוס סיסמה",
+    "childInviteSetup": "הגדרת ילד",
+    "childPinUnlock": "הזנת קוד PIN",
     "inventory": "מלאי ביתי",
     "shoppingList": "רשימת קניות",
     "barcodeScanner": "סורק ברקוד",
@@ -243,6 +245,45 @@
     "newPasswordRequired": "יש להזין סיסמה חדשה.",
     "confirmNewPasswordRequired": "יש לאשר את הסיסמה החדשה."
   },
+  "childInvite": {
+    "title": "הגדרת פרופיל הילד",
+    "subtitle": "השלם במכשיר הזה את פרטי פרופיל הילד. חשבון ההורה נשאר ללא שינוי.",
+    "loading": "טוען הזמנת ילד...",
+    "readyTitle": "הזמנת ילד מוכנה",
+    "readyBody": "יש להשלים במכשיר הזה את הגדרת פרופיל הילד כדי להצטרף למשפחה.",
+    "invalidTitle": "לא ניתן לפתוח את הזמנת הילד",
+    "invalidBody": "הזמנת הילד הזו אינה תקינה או שכבר נעשה בה שימוש.",
+    "missingBody": "לא נמצאה במכשיר הזה הזמנת ילד.",
+    "birthdayPlaceholder": "YYYY-MM-DD",
+    "pinLabel": "קוד PIN בן 4 ספרות",
+    "pinPlaceholder": "בחר קוד PIN בן 4 ספרות",
+    "confirmPinLabel": "אימות PIN",
+    "confirmPinPlaceholder": "הזן שוב את קוד ה-PIN",
+    "submitButton": "יצירת פרופיל ילד",
+    "submitting": "יוצר פרופיל ילד...",
+    "submitFailedTitle": "לא ניתן ליצור פרופיל ילד",
+    "validation": {
+      "displayNameRequired": "יש להזין שם תצוגה.",
+      "pinRequired": "יש להזין קוד PIN בן 4 ספרות.",
+      "pinMismatch": "קודי ה-PIN אינם תואמים."
+    }
+  },
+  "childPin": {
+    "title": "פתיחת פרופיל ילד",
+    "subtitle": "יש להזין את קוד ה-PIN של {{name}} כדי להמשיך.",
+    "placeholder": "קוד PIN בן 4 ספרות",
+    "unlockButton": "פתח",
+    "unlocking": "פותח...",
+    "invalidTitle": "קוד PIN שגוי",
+    "invalidBody": "קוד ה-PIN שגוי. נסה שוב.",
+    "useAdultAccount": "מעבר לחשבון מבוגר"
+  },
+  "childAccount": {
+    "profileTitle": "פרופיל ילד מנוהל",
+    "profileBody": "הפרופיל הזה מנוהל מתוך חשבון ההורה. אפשר לצפות כאן בפרטים האישיים, אבל שינויים בחשבון מתבצעים דרך ההורה.",
+    "membersTitle": "ניהול חברים מתבצע על ידי ההורה",
+    "membersBody": "האזור הזה זמין רק לחשבון ההורה או למבוגרים עם הרשאות אדמין."
+  },
   "shoppingList": {
     "totalPrefix": "סה\"כ",
     "openAdd": "הוסף פריט",
@@ -277,6 +318,10 @@
     "deleteFailedTitle": "לא ניתן למחוק פריט",
     "batchFailedTitle": "פעולה מרובה נכשלה",
     "productTitle": "פרטי מוצר",
+    "categoryStepTitle": "קודם בוחרים קטגוריה",
+    "categoryStepBody": "התחל בקטגוריית הסופרמרקט כדי שהטופס יציג רק את שדות המוצר הרלוונטיים.",
+    "selectedCategory": "קטגוריה שנבחרה",
+    "changeCategory": "שנה",
     "barcodeTitle": "סיוע ברקוד",
     "barcodePlaceholder": "ברקוד (8-14 ספרות)",
     "barcodeLookup": "חפש",
@@ -288,6 +333,7 @@
     "validationTitle": "פריט לא תקין",
     "validationRequired": "שם מוצר וקטגוריה הם שדות חובה.",
     "validationExpiry": "אם מוזן תאריך תפוגה, הוא חייב להיות תקין.",
+    "validationExpiryRequired": "תאריך תפוגה הוא שדה חובה עבור הקטגוריה הזו.",
     "validationNumbers": "מחיר חייב להיות 0 ומעלה וכמות חייבת להיות גדולה מ-0.",
     "edit": "עריכה",
     "saveEdit": "שמור",
@@ -309,13 +355,39 @@
       "price": "מחיר",
       "quantity": "כמות"
     },
-    "detailsTemplate": "קטגוריה: {{category}} | כמות: {{quantity}} | תפוגה: {{expiryDate}}",
+    "detailsTemplate": "קטגוריה: {{category}} | מחיר: ₪{{price}} | כמות: {{quantity}} | תפוגה: {{expiryDate}}",
+    "categoryMeta": {
+      "weight": "נמכר לפי משקל",
+      "count": "נמכר לפי יחידה",
+      "expiryRequired": "תאריך תפוגה חובה",
+      "expiryOptional": "תאריך תפוגה אופציונלי",
+      "noExpiry": "אין צורך בתאריך תפוגה"
+    },
+    "categories": {
+      "fruitsVegetables": "פירות וירקות",
+      "meatPoultry": "בשר ועוף",
+      "fishSeafood": "דגים ופירות ים",
+      "dairyEggs": "מוצרי חלב וביצים",
+      "bakeryBread": "מאפייה ולחם",
+      "deliPrepared": "מעדנייה ומזון מוכן",
+      "frozenFoods": "מזון קפוא",
+      "pantryDryGoods": "מוצרי מזווה ויבשים",
+      "cannedJarred": "שימורים וצנצנות",
+      "breakfastCereal": "ארוחות בוקר ודגנים",
+      "beverages": "משקאות",
+      "snacksCandy": "חטיפים וממתקים",
+      "householdCleaning": "מוצרי בית וניקיון",
+      "personalCare": "טיפוח אישי",
+      "other": "אחר"
+    },
     "form": {
       "productName": "שם מוצר",
       "category": "קטגוריה",
       "expiryDate": "תאריך תפוגה (YYYY-MM-DD)",
+      "expiryDateRequired": "תאריך תפוגה* (YYYY-MM-DD)",
       "price": "מחיר",
-      "quantity": "כמות"
+      "quantity": "כמות",
+      "weight": "משקל (ק\"ג)"
     }
   },
   "scanner": {
